@@ -1,1 +1,5 @@
 .env
+
+# local runtime data
+bot.db
+*.db
