@@ -20,6 +20,11 @@ class RulesSyncConfig:
 
 
 @dataclass(slots=True)
+class PathConfig:
+    project_root: Path
+
+
+@dataclass(slots=True)
 class DailyConfig:
     timezone_name: str
     topic_channel_id: int | None
@@ -36,6 +41,7 @@ class AppConfig:
     discord_guild_id: int | None
     log_level: str
     sqlite_path: Path
+    paths: PathConfig
     rules_sync: RulesSyncConfig
     daily: DailyConfig
 
@@ -59,27 +65,51 @@ def _get_bool(name: str, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _resolve_path(value: str) -> Path:
-    return Path(value).expanduser()
+def _resolve_path(value: str, base_path: Path | None = None) -> Path:
+    path = Path(value).expanduser()
+    if path.is_absolute() or base_path is None:
+        return path
+    return (base_path / path).resolve()
+
+
+def _load_rules_sync_config() -> RulesSyncConfig:
+    project_root = Path(__file__).resolve().parents[2]
+    return RulesSyncConfig(
+        repo_url=os.getenv("GITHUB_RULES_REPO_URL", "").strip(),
+        branch=os.getenv("GITHUB_RULES_BRANCH", "master").strip(),
+        local_checkout_path=_resolve_path(
+            os.getenv("GITHUB_RULES_LOCAL_PATH", "data/rules_repo"),
+            base_path=project_root,
+        ),
+        include_paths=[
+            path.strip()
+            for path in os.getenv("GITHUB_RULES_INCLUDE_PATHS", "tools/rulebook/src").split(",")
+            if path.strip()
+        ],
+        build_command=os.getenv("GITHUB_RULES_BUILD_COMMAND", "python -m bot.services.build_rules_artifact")
+        or None,
+        artifact_path=_resolve_path(
+            os.getenv("GITHUB_RULES_ARTIFACT_PATH", "data/rules_repo/.bot_cache/manual.md"),
+            base_path=project_root,
+        ),
+        rules_index_path=_resolve_path(
+            os.getenv("RULES_INDEX_PATH", "data/rules_index.json"),
+            base_path=project_root,
+        ),
+        github_token=os.getenv("GITHUB_TOKEN") or None,
+    )
+
+
+def load_rules_sync_config() -> RulesSyncConfig:
+    load_dotenv()
+    return _load_rules_sync_config()
 
 
 def load_config() -> AppConfig:
     load_dotenv()
 
-    rules_sync = RulesSyncConfig(
-        repo_url=os.getenv("GITHUB_RULES_REPO_URL", "").strip(),
-        branch=os.getenv("GITHUB_RULES_BRANCH", "main").strip(),
-        local_checkout_path=_resolve_path(os.getenv("GITHUB_RULES_LOCAL_PATH", "data/rules_repo")),
-        include_paths=[
-            path.strip()
-            for path in os.getenv("GITHUB_RULES_INCLUDE_PATHS", "").split(",")
-            if path.strip()
-        ],
-        build_command=os.getenv("GITHUB_RULES_BUILD_COMMAND") or None,
-        artifact_path=_resolve_path(os.getenv("GITHUB_RULES_ARTIFACT_PATH", "build/manual.md")),
-        rules_index_path=_resolve_path(os.getenv("RULES_INDEX_PATH", "data/rules_index.json")),
-        github_token=os.getenv("GITHUB_TOKEN") or None,
-    )
+    project_root = Path(__file__).resolve().parents[2]
+    rules_sync = _load_rules_sync_config()
 
     daily = DailyConfig(
         timezone_name=os.getenv("DAILY_TIMEZONE", "America/New_York"),
@@ -95,7 +125,8 @@ def load_config() -> AppConfig:
         discord_application_id=int(_get_required("DISCORD_APPLICATION_ID")),
         discord_guild_id=_get_optional_int("DISCORD_GUILD_ID"),
         log_level=os.getenv("LOG_LEVEL", "INFO"),
-        sqlite_path=_resolve_path(os.getenv("SQLITE_PATH", "data/bot.db")),
+        sqlite_path=_resolve_path(os.getenv("SQLITE_PATH", "data/bot.db"), base_path=project_root),
+        paths=PathConfig(project_root=project_root),
         rules_sync=rules_sync,
         daily=daily,
     )

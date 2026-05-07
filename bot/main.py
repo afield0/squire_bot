@@ -6,15 +6,15 @@ import logging
 import discord
 from discord.ext import commands
 
-from bot.cogs.admin import AdminCog
 from bot.cogs.bot_status import BotStatusCog
 from bot.cogs.daily import DailyCog
 from bot.cogs.polls import PollsCog
 from bot.cogs.rules import RulesCog
+from bot.services.build_rules_artifact import RulesArtifactBuilder
 from bot.services.content import DailyContentService
 from bot.services.github_sync import GitHubRulesSyncService
 from bot.services.retrieval import RulesRetrievalService
-from bot.services.rules_build import RulesBuildService
+from bot.services.rules_index import RulesIndexService
 from bot.storage.db import Database
 from bot.storage.poll_repo import PollRepository
 from bot.storage.state_repo import StateRepository
@@ -37,7 +37,8 @@ class VampireDefendersBot(commands.Bot):
         self.state_repo = StateRepository(self.database)
         self.poll_repo = PollRepository(self.database)
         self.rules_sync = GitHubRulesSyncService(config.rules_sync)
-        self.rules_builder = RulesBuildService(config.rules_sync)
+        self.rules_artifact_builder = RulesArtifactBuilder(config.rules_sync)
+        self.rules_index_service = RulesIndexService(config.rules_sync)
         self.retrieval_service = RulesRetrievalService(config.rules_sync.rules_index_path)
         self.daily_content_service = DailyContentService()
 
@@ -48,14 +49,10 @@ class VampireDefendersBot(commands.Bot):
         await self.add_cog(
             RulesCog(
                 bot=self,
-                retrieval_service=self.retrieval_service,
-            )
-        )
-        await self.add_cog(
-            AdminCog(
-                bot=self,
+                state_repo=self.state_repo,
                 sync_service=self.rules_sync,
-                build_service=self.rules_builder,
+                artifact_builder=self.rules_artifact_builder,
+                index_service=self.rules_index_service,
                 retrieval_service=self.retrieval_service,
             )
         )

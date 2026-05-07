@@ -13,7 +13,7 @@ This project uses:
 ## Features
 
 - Rules lookup from a private GitHub repo using a local built artifact
-- Manual rules sync and rebuild commands
+- Manual rules sync and status commands
 - Topic-of-the-day and optional design-prompt scheduled posts
 - Poll creation, voting, closing, and historical results in SQLite
 - Health/status command
@@ -34,10 +34,11 @@ bot/
     polls.py
     rules.py
   services/
+    build_rules_artifact.py
     content.py
     github_sync.py
     retrieval.py
-    rules_build.py
+    rules_index.py
     scheduler.py
   storage/
     db.py
@@ -96,31 +97,30 @@ The bot reads rules from a private GitHub repository, but answers from a local c
 
 Required environment variables:
 
-- `GITHUB_RULES_REPO_URL`: HTTPS clone URL for the private repo
-- `GITHUB_RULES_BRANCH`: branch to sync from
-- `GITHUB_RULES_LOCAL_PATH`: local checkout path
-- `GITHUB_RULES_INCLUDE_PATHS`: comma-separated repo paths to sparse-checkout
-- `GITHUB_TOKEN`: GitHub token with read access to the private repo
-
-Optional build settings:
-
-- `GITHUB_RULES_BUILD_COMMAND`: command to run inside the checkout after sync
-- `GITHUB_RULES_ARTIFACT_PATH`: artifact path to index after build
-- `RULES_INDEX_PATH`: local JSON index path used by retrieval
+- `GITHUB_TOKEN`: fine-grained GitHub PAT with read access to the private repo
+- `GITHUB_RULES_REPO_URL=https://github.com/afield0/vampire-defenders-2.git`
+- `GITHUB_RULES_BRANCH=master`
+- `GITHUB_RULES_INCLUDE_PATHS=tools/rulebook/src`
+- `GITHUB_RULES_LOCAL_PATH=data/rules_repo`
+- `GITHUB_RULES_BUILD_COMMAND=python -m bot.services.build_rules_artifact`
+- `GITHUB_RULES_ARTIFACT_PATH=data/rules_repo/.bot_cache/manual.md`
+- `RULES_INDEX_PATH=data/rules_index.json`
 
 Behavior:
 
 - if the repo does not exist locally, the bot performs a sparse clone
 - if it exists, the bot updates it with a pull
-- if `GITHUB_RULES_BUILD_COMMAND` is set, that command is used to produce the final artifact
-- otherwise, the bot concatenates the configured sparse paths into one Markdown artifact
+- the bot only indexes Markdown under `tools/rulebook/src`
+- the build step concatenates those files into one local artifact
+- the retrieval layer answers only from the local built/indexed copy
 
 ## Slash Commands
 
 Rules:
 
 - `/rules ask question:<text>`
-- `/rules sources`
+- `/rules sync`
+- `/rules status`
 
 Daily:
 
@@ -132,11 +132,6 @@ Polls:
 - `/poll create question:<text> options:<comma-separated>`
 - `/poll results id:<poll_id>`
 - `/poll close id:<poll_id>`
-
-Admin:
-
-- `/admin sync-rules`
-- `/admin rebuild-rules`
 
 Bot:
 
@@ -160,11 +155,32 @@ On startup the bot:
 
 ### Rules sync
 
-1. Set the GitHub repo environment variables.
-2. Start the bot.
-3. Run `/admin sync-rules`.
-4. Run `/rules sources` to confirm the local artifact and revision are loaded.
-5. Run `/rules ask question:...`.
+1. Create a fine-grained GitHub PAT with repository read access to `afield0/vampire-defenders-2`.
+2. Set `GITHUB_TOKEN` and the rules environment variables from `.env.example`.
+3. Start the bot.
+4. Run `/rules sync`.
+5. Run `/rules status` to confirm the commit hash, artifact path, and chunk count.
+6. Run `/rules ask question:...`.
+
+You can also run the artifact build locally:
+
+```bash
+python -m bot.services.build_rules_artifact
+```
+
+The bot writes lightweight rules metadata locally in SQLite:
+
+- last successful sync time
+- last artifact build time
+- current commit hash
+- current chunk count
+
+### Rules Q&A behavior
+
+- `/rules ask` uses only the built local Markdown corpus from `tools/rulebook/src`
+- answers are based on keyword retrieval over indexed chunks
+- responses include section/source citations where available
+- low-confidence questions return an explicit not-found style response
 
 ### Daily posts
 
@@ -186,8 +202,14 @@ The scheduler stores the last posted date in SQLite so it does not repost the sa
 
 Polls and votes are stored in SQLite and remain available across restarts.
 
+## Security Notes
+
+- `.env` stays local and should never be committed.
+- The bot never uses GitHub as a database for runtime state.
+- The sync service sanitizes token-bearing command output before surfacing errors.
+
 ## Notes
 
-- This scaffold intentionally uses simple local retrieval first.
+- This version intentionally uses simple local retrieval first.
 - `bot/services/retrieval.py` is structured so embeddings or vector search can replace the scorer later.
-- `bot/services/content.py` isolates daily content generation so an LLM can be introduced later without changing the Discord command layer.
+- TODOs for card lookup and optional LLM synthesis should stay in the rules services, not in the Discord cog.
