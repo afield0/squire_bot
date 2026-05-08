@@ -1,10 +1,10 @@
-# Vampire Defenders Discord Bot
+# Squire Discord Bot
 
-Local-first Discord bot scaffold for the Vampire Defenders board game project.
+Local-first Discord bot scaffold for a board game project.
 
 This project uses:
 
-- Python 3.12
+- Python 3
 - `discord.py` slash commands
 - cogs/extensions
 - SQLite for runtime state
@@ -98,7 +98,7 @@ The bot reads rules from a private GitHub repository, but answers from a local c
 Required environment variables:
 
 - `GITHUB_TOKEN`: fine-grained GitHub PAT with read access to the private repo
-- `GITHUB_RULES_REPO_URL=https://github.com/afield0/vampire-defenders-2.git`
+- `GITHUB_RULES_REPO_URL=https://github.com/something`
 - `GITHUB_RULES_BRANCH=master`
 - `GITHUB_RULES_INCLUDE_PATHS=tools/rulebook/src`
 - `GITHUB_RULES_LOCAL_PATH=data/rules_repo`
