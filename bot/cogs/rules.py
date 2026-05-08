@@ -71,15 +71,17 @@ class RulesCog(commands.GroupCog, group_name="rules", group_description="Rules l
         used_openai = False
         try:
             started = time.perf_counter()
+            used_openai = True
             answer = await asyncio.to_thread(
                 self.openai_client.answer_rules_question,
                 question,
                 rulebook_text,
             )
             latency_ms = round((time.perf_counter() - started) * 1000, 1)
-            used_openai = True
-            await interaction.followup.send(self._format_answer(answer), ephemeral=False)
+            await interaction.followup.send(self._format_answer(question, answer), ephemeral=False)
         except Exception as exc:
+            if "started" in locals():
+                latency_ms = round((time.perf_counter() - started) * 1000, 1)
             LOGGER.warning("Falling back after OpenAI failure: %s", exc)
             await interaction.followup.send(
                 self._fallback_message(
@@ -237,8 +239,12 @@ class RulesCog(commands.GroupCog, group_name="rules", group_description="Rules l
         LOGGER.info("Loaded rules artifact path=%s chars=%s", artifact_path, len(rulebook_text))
         return artifact_path, rulebook_text
 
-    def _format_answer(self, answer: LLMAnswer) -> str:
-        lines = [answer.answer.strip()]
+    def _format_answer(self, question: str, answer: LLMAnswer) -> str:
+        lines = [
+            f"Question: {question.strip()}",
+            "",
+            answer.answer.strip(),
+        ]
 
         if answer.ambiguity_note and answer.status == "ambiguous":
             lines.append("")
