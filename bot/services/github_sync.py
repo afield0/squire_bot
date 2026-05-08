@@ -26,24 +26,33 @@ class GitHubRulesSyncService:
     async def ensure_repo_synced(self) -> str:
         self._validate_sync_prerequisites()
         self.config.local_checkout_path.parent.mkdir(parents=True, exist_ok=True)
+        LOGGER.info(
+            "Syncing rules repository branch=%s path=%s",
+            self.config.branch,
+            self.config.local_checkout_path,
+        )
 
-        if not self.config.local_checkout_path.exists():
-            await self._clone_sparse()
-        else:
-            if not await self._is_git_repo():
-                raise RuntimeError(
-                    f"Local rules path exists but is not a git repository: {self.config.local_checkout_path}"
-                )
-            await self._run_git("remote", "set-url", "origin", self.config.repo_url)
-            await self._update_sparse_settings()
-            await self._run_git("fetch", "origin", self.config.branch)
-            await self._run_git("checkout", self.config.branch)
-            await self._run_git("pull", "--ff-only", "origin", self.config.branch)
+        try:
+            if not self.config.local_checkout_path.exists():
+                await self._clone_sparse()
+            else:
+                if not await self._is_git_repo():
+                    raise RuntimeError(
+                        f"Local rules path exists but is not a git repository: {self.config.local_checkout_path}"
+                    )
+                await self._run_git("remote", "set-url", "origin", self.config.repo_url)
+                await self._update_sparse_settings()
+                await self._run_git("fetch", "origin", self.config.branch)
+                await self._run_git("checkout", self.config.branch)
+                await self._run_git("pull", "--ff-only", "origin", self.config.branch)
 
-        await self._ensure_include_paths_exist()
-        commit = await self.get_current_commit()
-        LOGGER.info("Rules repo synced at commit %s", commit)
-        return commit
+            await self._ensure_include_paths_exist()
+            commit = await self.get_current_commit()
+            LOGGER.info("Rules repo synced at commit %s", commit)
+            return commit
+        except Exception:
+            LOGGER.exception("Rules repo sync failed")
+            raise
 
     async def get_current_commit(self) -> str:
         self._ensure_checkout_exists()
@@ -74,7 +83,7 @@ class GitHubRulesSyncService:
     async def _clone_sparse(self) -> None:
         LOGGER.info("Cloning rules repository into %s", self.config.local_checkout_path)
         await self._run_command(
-            "git",
+            *self._git_command(
             "clone",
             "--filter=blob:none",
             "--sparse",
@@ -82,6 +91,7 @@ class GitHubRulesSyncService:
             self.config.branch,
             self.config.repo_url,
             str(self.config.local_checkout_path),
+            )
         )
         await self._update_sparse_settings()
 
@@ -132,12 +142,7 @@ class GitHubRulesSyncService:
 
     async def _run_git(self, *args: str) -> CompletedCommand:
         self._ensure_checkout_exists()
-        return await self._run_command(
-            "git",
-            "-C",
-            str(self.config.local_checkout_path),
-            *args,
-        )
+        return await self._run_command(*self._git_command("-C", str(self.config.local_checkout_path), *args))
 
     async def _run_command(self, *command: str, check: bool = True) -> CompletedCommand:
         process = await asyncio.create_subprocess_exec(
@@ -167,11 +172,17 @@ class GitHubRulesSyncService:
 
     def _command_env(self) -> dict[str, str]:
         env = os.environ.copy()
-        if self.config.github_token:
-            env["GIT_HTTP_EXTRA_HEADER"] = self._auth_header_value()
+        env["GIT_TERMINAL_PROMPT"] = "0"
         return env
 
     def _auth_header_value(self) -> str:
         token_bytes = f"x-access-token:{self.config.github_token}".encode("utf-8")
         encoded = base64.b64encode(token_bytes).decode("ascii")
         return f"AUTHORIZATION: basic {encoded}"
+
+    def _git_command(self, *args: str) -> tuple[str, ...]:
+        command: list[str] = ["git"]
+        if self.config.github_token:
+            command.extend(["-c", f"http.extraHeader={self._auth_header_value()}"])
+        command.extend(args)
+        return tuple(command)

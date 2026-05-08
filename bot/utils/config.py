@@ -20,6 +20,15 @@ class RulesSyncConfig:
 
 
 @dataclass(slots=True)
+class OpenAIConfig:
+    api_key: str | None
+    model: str
+    temperature: float | None
+    timeout_seconds: float
+    rules_use_llm: bool
+
+
+@dataclass(slots=True)
 class PathConfig:
     project_root: Path
 
@@ -43,6 +52,7 @@ class AppConfig:
     sqlite_path: Path
     paths: PathConfig
     rules_sync: RulesSyncConfig
+    openai: OpenAIConfig
     daily: DailyConfig
 
 
@@ -70,6 +80,11 @@ def _resolve_path(value: str, base_path: Path | None = None) -> Path:
     if path.is_absolute() or base_path is None:
         return path
     return (base_path / path).resolve()
+
+
+def _get_optional_float(name: str, default: float | None = None) -> float | None:
+    value = os.getenv(name)
+    return float(value) if value and value.strip() else default
 
 
 def _load_rules_sync_config() -> RulesSyncConfig:
@@ -100,6 +115,16 @@ def _load_rules_sync_config() -> RulesSyncConfig:
     )
 
 
+def _load_openai_config() -> OpenAIConfig:
+    return OpenAIConfig(
+        api_key=os.getenv("OPENAI_API_KEY") or None,
+        model=os.getenv("OPENAI_MODEL", "gpt-5").strip() or "gpt-5",
+        temperature=_get_optional_float("OPENAI_TEMPERATURE"),
+        timeout_seconds=_get_optional_float("RULES_LLM_TIMEOUT_SECONDS", 30.0),
+        rules_use_llm=_get_bool("RULES_USE_LLM", default=False),
+    )
+
+
 def load_rules_sync_config() -> RulesSyncConfig:
     load_dotenv()
     return _load_rules_sync_config()
@@ -110,6 +135,7 @@ def load_config() -> AppConfig:
 
     project_root = Path(__file__).resolve().parents[2]
     rules_sync = _load_rules_sync_config()
+    openai = _load_openai_config()
 
     daily = DailyConfig(
         timezone_name=os.getenv("DAILY_TIMEZONE", "America/New_York"),
@@ -128,5 +154,6 @@ def load_config() -> AppConfig:
         sqlite_path=_resolve_path(os.getenv("SQLITE_PATH", "data/bot.db"), base_path=project_root),
         paths=PathConfig(project_root=project_root),
         rules_sync=rules_sync,
+        openai=openai,
         daily=daily,
     )

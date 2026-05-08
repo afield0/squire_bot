@@ -13,6 +13,7 @@ This project uses:
 ## Features
 
 - Rules lookup from a private GitHub repo using a local built artifact
+- OpenAI-grounded rules answers that send the full local rulebook artifact on each query
 - Manual rules sync and status commands
 - Topic-of-the-day and optional design-prompt scheduled posts
 - Poll creation, voting, closing, and historical results in SQLite
@@ -37,8 +38,10 @@ bot/
     build_rules_artifact.py
     content.py
     github_sync.py
+    openai_client.py
     retrieval.py
     rules_index.py
+    rules_prompt.py
     scheduler.py
   storage/
     db.py
@@ -93,7 +96,7 @@ This bot does not require privileged intents for the implemented features. The d
 
 ## GitHub Rules Repo Setup
 
-The bot reads rules from a private GitHub repository, but answers from a local checkout and local index.
+The bot reads rules from a private GitHub repository, builds a combined local Markdown artifact, and answers rules questions from that local artifact.
 
 Required environment variables:
 
@@ -104,15 +107,42 @@ Required environment variables:
 - `GITHUB_RULES_LOCAL_PATH=data/rules_repo`
 - `GITHUB_RULES_BUILD_COMMAND=python -m bot.services.build_rules_artifact`
 - `GITHUB_RULES_ARTIFACT_PATH=data/rules_repo/.bot_cache/manual.md`
-- `RULES_INDEX_PATH=data/rules_index.json`
+- `OPENAI_API_KEY`
+- `OPENAI_MODEL=gpt-5`
+- `OPENAI_TEMPERATURE=` optional, blank by default
+- `RULES_USE_LLM=true`
+- `RULES_LLM_TIMEOUT_SECONDS=30`
 
 Behavior:
 
 - if the repo does not exist locally, the bot performs a sparse clone
 - if it exists, the bot updates it with a pull
-- the bot only indexes Markdown under `tools/rulebook/src`
-- the build step concatenates those files into one local artifact
-- the retrieval layer answers only from the local built/indexed copy
+- the bot only reads Markdown under `tools/rulebook/src`
+- the build step concatenates those files into one local artifact at `data/rules_repo/.bot_cache/manual.md`
+- `/rules ask` sends the entire local artifact plus the user question to OpenAI on each call
+- the prompt tells the model to answer only from the supplied rulebook text and to say when the answer is unclear or missing
+- fallback is user-friendly and does not use local chunk retrieval as the main answer path
+
+### GitHub PAT
+
+Create a fine-grained personal access token on GitHub with read-only repository access to `afield0/vampire-defenders-2`, then set it in `GITHUB_TOKEN`.
+
+The bot does not log the token and sanitizes Git command output before surfacing failures.
+
+## OpenAI Rules Answering
+
+The rules bot uses only one LLM backend right now: OpenAI.
+
+With the current Responses API integration for `gpt-5`, the bot does not send `temperature` on the API call. `OPENAI_TEMPERATURE` may be left blank in `.env` and is treated as `None`.
+
+For each `/rules ask` request:
+
+- the bot loads the full local `manual.md` artifact
+- the bot sends the entire artifact and the user question to OpenAI
+- the model is instructed to answer only from that supplied rulebook text
+- the response should include short citations by filename and heading where possible
+
+If OpenAI is unavailable, misconfigured, or times out, the bot does not crash. It returns a user-facing fallback message and logs the failure cleanly.
 
 ## Slash Commands
 
@@ -121,6 +151,7 @@ Rules:
 - `/rules ask question:<text>`
 - `/rules sync`
 - `/rules status`
+- `/rules debug question:<text>`
 
 Daily:
 
@@ -149,18 +180,19 @@ On startup the bot:
 - initializes SQLite schema
 - loads cogs
 - syncs slash commands
-- attempts to load any existing rules index
+- initializes the OpenAI rules client if enabled
 
 ## Testing the Core Flows
 
 ### Rules sync
 
 1. Create a fine-grained GitHub PAT with repository read access to `afield0/vampire-defenders-2`.
-2. Set `GITHUB_TOKEN` and the rules environment variables from `.env.example`.
+2. Set `GITHUB_TOKEN`, `OPENAI_API_KEY`, and the rules environment variables from `.env.example`.
 3. Start the bot.
 4. Run `/rules sync`.
-5. Run `/rules status` to confirm the commit hash, artifact path, and chunk count.
+5. Run `/rules status` to confirm the commit hash, artifact path, artifact size, and model.
 6. Run `/rules ask question:...`.
+7. Optionally run `/rules debug question:...` to inspect artifact load size, model use, and latency.
 
 You can also run the artifact build locally:
 
@@ -173,14 +205,17 @@ The bot writes lightweight rules metadata locally in SQLite:
 - last successful sync time
 - last artifact build time
 - current commit hash
-- current chunk count
 
 ### Rules Q&A behavior
 
 - `/rules ask` uses only the built local Markdown corpus from `tools/rulebook/src`
-- answers are based on keyword retrieval over indexed chunks
-- responses include section/source citations where available
-- low-confidence questions return an explicit not-found style response
+- the entire combined rulebook artifact is sent to OpenAI for each question
+- the prompt forbids outside knowledge and requires the model to stay grounded in the supplied rulebook text
+- responses include a short `Sources:` section when citations are available
+- if the answer is ambiguous, the bot says so clearly
+- if the answer is not clearly present, the bot returns: `I could not find a clear answer in the indexed rulebook.`
+- if `RULES_USE_LLM=false`, the bot responds that LLM mode is disabled
+- if OpenAI fails, the bot returns a fallback message instead of crashing
 
 ### Daily posts
 
@@ -207,9 +242,11 @@ Polls and votes are stored in SQLite and remain available across restarts.
 - `.env` stays local and should never be committed.
 - The bot never uses GitHub as a database for runtime state.
 - The sync service sanitizes token-bearing command output before surfacing errors.
+- The bot never logs `OPENAI_API_KEY`.
+- The bot does not log the full prompt body unless you add your own debug logging.
 
 ## Notes
 
-- This version intentionally uses simple local retrieval first.
-- `bot/services/retrieval.py` is structured so embeddings or vector search can replace the scorer later.
-- TODOs for card lookup and optional LLM synthesis should stay in the rules services, not in the Discord cog.
+- This version intentionally keeps the rules architecture simple and readable.
+- The primary answer path does not use local chunk retrieval or semantic search.
+- TODOs for chunk retrieval and card lookup should stay in the rules services, not in the Discord cog.

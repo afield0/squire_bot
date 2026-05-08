@@ -40,3 +40,19 @@ class RulesRepoStatus:
     is_git_repo: bool
     current_commit: str | None
     last_sync_at: str | None
+
+
+@dataclass(slots=True)
+class RuleCitation:
+    source_file: str
+    heading: str
+    label: str
+
+
+@dataclass(slots=True)
+class LLMAnswer:
+    answer: str
+    citations: list[RuleCitation]
+    grounded: bool
+    status: str
+    ambiguity_note: str | None = None

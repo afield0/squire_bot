@@ -38,7 +38,13 @@ class RulesArtifactBuilder:
             )
 
         artifact_path.write_text("\n\n---\n\n".join(sections) + "\n", encoding="utf-8")
-        LOGGER.info("Built rules artifact at %s", artifact_path)
+        artifact_size = artifact_path.stat().st_size
+        LOGGER.info(
+            "Built rules artifact at %s from %s files (%s bytes)",
+            artifact_path,
+            len(markdown_files),
+            artifact_size,
+        )
         return artifact_path
 
     def artifact_path(self) -> Path:

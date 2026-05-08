@@ -13,8 +13,7 @@ from bot.cogs.rules import RulesCog
 from bot.services.build_rules_artifact import RulesArtifactBuilder
 from bot.services.content import DailyContentService
 from bot.services.github_sync import GitHubRulesSyncService
-from bot.services.retrieval import RulesRetrievalService
-from bot.services.rules_index import RulesIndexService
+from bot.services.openai_client import OpenAIRulesClient
 from bot.storage.db import Database
 from bot.storage.poll_repo import PollRepository
 from bot.storage.state_repo import StateRepository
@@ -38,13 +37,11 @@ class VampireDefendersBot(commands.Bot):
         self.poll_repo = PollRepository(self.database)
         self.rules_sync = GitHubRulesSyncService(config.rules_sync)
         self.rules_artifact_builder = RulesArtifactBuilder(config.rules_sync)
-        self.rules_index_service = RulesIndexService(config.rules_sync)
-        self.retrieval_service = RulesRetrievalService(config.rules_sync.rules_index_path)
+        self.openai_rules_client = OpenAIRulesClient(config.openai)
         self.daily_content_service = DailyContentService()
 
     async def setup_hook(self) -> None:
         self.database.initialize()
-        await self.retrieval_service.load()
 
         await self.add_cog(
             RulesCog(
@@ -52,8 +49,7 @@ class VampireDefendersBot(commands.Bot):
                 state_repo=self.state_repo,
                 sync_service=self.rules_sync,
                 artifact_builder=self.rules_artifact_builder,
-                index_service=self.rules_index_service,
-                retrieval_service=self.retrieval_service,
+                openai_client=self.openai_rules_client,
             )
         )
         await self.add_cog(

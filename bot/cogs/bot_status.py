@@ -12,13 +12,16 @@ class BotStatusCog(commands.GroupCog, group_name="bot", group_description="Bot h
 
     @app_commands.command(name="status", description="Show bot health and loaded services")
     async def status(self, interaction: discord.Interaction) -> None:
-        rules_loaded = "yes" if self.bot.retrieval_service.has_index() else "no"
-        rules_summary = self.bot.retrieval_service.get_sources_summary()
+        artifact_path = self.bot.config.rules_sync.artifact_path
+        rules_loaded = "yes" if artifact_path.exists() else "no"
+        rules_summary = f"Rules artifact: `{artifact_path}`"
         lines = [
             f"Latency: `{round(self.bot.latency * 1000, 1)} ms`",
             f"Database: `{self.bot.database.path}`",
             f"Rules loaded: `{rules_loaded}`",
             rules_summary,
+            f"LLM mode: `{self.bot.config.openai.rules_use_llm}`",
+            f"Model: `{self.bot.config.openai.model}`",
             f"Topic channel: `{self.bot.config.daily.topic_channel_id}`",
             f"Design prompt enabled: `{self.bot.config.daily.enable_design_prompt}`",
         ]
