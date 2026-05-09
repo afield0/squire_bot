@@ -12,9 +12,13 @@ from bot.cogs.polls import PollsCog
 from bot.cogs.rules import RulesCog
 from bot.services.build_rules_artifact import RulesArtifactBuilder
 from bot.services.content import DailyContentService
+from bot.services.daily_llm import DailyLLMComposer
+from bot.services.daily_sources import DailySourceGatherer
 from bot.services.github_sync import GitHubRulesSyncService
 from bot.services.openai_client import OpenAIRulesClient
+from bot.services.topic_seeds import TopicSeedCatalog
 from bot.storage.db import Database
+from bot.storage.daily_repo import DailyHistoryRepository
 from bot.storage.poll_repo import PollRepository
 from bot.storage.state_repo import StateRepository
 from bot.utils.config import AppConfig, load_config
@@ -35,10 +39,19 @@ class VampireDefendersBot(commands.Bot):
         self.database = Database(config.sqlite_path)
         self.state_repo = StateRepository(self.database)
         self.poll_repo = PollRepository(self.database)
+        self.daily_repo = DailyHistoryRepository(self.database)
         self.rules_sync = GitHubRulesSyncService(config.rules_sync)
         self.rules_artifact_builder = RulesArtifactBuilder(config.rules_sync)
         self.openai_rules_client = OpenAIRulesClient(config.openai)
-        self.daily_content_service = DailyContentService()
+        self.daily_source_gatherer = DailySourceGatherer(
+            config.rules_sync.artifact_path,
+            max_excerpts=config.daily.max_source_excerpts,
+        )
+        self.daily_content_service = DailyContentService(
+            seed_catalog=TopicSeedCatalog(config.daily.topic_seeds_path, self.daily_repo),
+            source_gatherer=self.daily_source_gatherer,
+            llm_composer=DailyLLMComposer(config.openai, enabled=config.daily.use_llm),
+        )
 
     async def setup_hook(self) -> None:
         self.database.initialize()
@@ -56,6 +69,7 @@ class VampireDefendersBot(commands.Bot):
             DailyCog(
                 bot=self,
                 state_repo=self.state_repo,
+                daily_repo=self.daily_repo,
                 content_service=self.daily_content_service,
             )
         )

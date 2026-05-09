@@ -23,6 +23,8 @@ class BotStatusCog(commands.GroupCog, group_name="bot", group_description="Bot h
             f"LLM mode: `{self.bot.config.openai.rules_use_llm}`",
             f"Model: `{self.bot.config.openai.model}`",
             f"Topic channel: `{self.bot.config.daily.topic_channel_id}`",
+            f"Daily LLM mode: `{self.bot.config.daily.use_llm}`",
+            f"Daily seed catalog: `{self.bot.config.daily.topic_seeds_path}`",
             f"Design prompt enabled: `{self.bot.config.daily.enable_design_prompt}`",
         ]
         await interaction.response.send_message("\n".join(lines), ephemeral=True)

@@ -58,6 +58,22 @@ class Database:
 
                 CREATE INDEX IF NOT EXISTS idx_poll_options_poll_id ON poll_options(poll_id);
                 CREATE INDEX IF NOT EXISTS idx_poll_votes_option_id ON poll_votes(option_id);
+
+                CREATE TABLE IF NOT EXISTS daily_posts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    seed_id TEXT,
+                    category TEXT,
+                    posted_at TEXT NOT NULL,
+                    source_labels TEXT NOT NULL DEFAULT '[]',
+                    channel_id INTEGER NOT NULL,
+                    message_id INTEGER NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_daily_posts_seed_posted_at
+                ON daily_posts(seed_id, posted_at);
+
+                CREATE INDEX IF NOT EXISTS idx_daily_posts_channel_message
+                ON daily_posts(channel_id, message_id);
                 """
             )
             self._migrate_schema(connection)

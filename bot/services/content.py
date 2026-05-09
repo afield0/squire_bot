@@ -1,26 +1,40 @@
 from __future__ import annotations
 
+import asyncio
+import logging
 from datetime import date
 
 from bot.models.daily import DailyPost
+from bot.services.daily_llm import DailyLLMComposer
+from bot.services.daily_sources import DailySourceGatherer
+from bot.services.topic_seeds import TopicSeedCatalog
+
+LOGGER = logging.getLogger(__name__)
 
 
 class DailyContentService:
-    def build_topic_of_day(self, today: date) -> DailyPost:
-        prompts = [
-            "Which monster pressure point feels most interesting to defend against right now?",
-            "What player decision in the current ruleset creates the most tension?",
-            "Which card or action could use a cleaner teach moment for new players?",
-            "What late-game state currently feels most exciting at the table?",
-            "Which defensive tool feels underused and why?",
-            "What rule causes the most playtest pause or clarification request?",
-            "Which turn choice creates the strongest risk-reward tradeoff?",
-        ]
-        topic = prompts[today.toordinal() % len(prompts)]
-        return DailyPost(
-            title="Vampire Defenders Topic of the Day",
-            body=topic,
+    def __init__(
+        self,
+        seed_catalog: TopicSeedCatalog,
+        source_gatherer: DailySourceGatherer,
+        llm_composer: DailyLLMComposer,
+    ) -> None:
+        self.seed_catalog = seed_catalog
+        self.source_gatherer = source_gatherer
+        self.llm_composer = llm_composer
+
+    async def build_topic_of_day(self, today: date) -> DailyPost:
+        seed = await self.seed_catalog.choose_seed(
+            today,
+            available_source_types=self.source_gatherer.available_source_types(),
         )
+        sources = await self.source_gatherer.gather(seed)
+        if self.llm_composer.available() and sources.has_sources:
+            try:
+                return await asyncio.to_thread(self.llm_composer.compose, seed, sources)
+            except Exception as exc:
+                LOGGER.warning("Daily LLM composition failed; using template fallback: %s", exc)
+        return self.llm_composer.fallback_post(seed, sources)
 
     def build_design_prompt(self, today: date) -> DailyPost:
         prompts = [

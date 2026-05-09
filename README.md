@@ -15,7 +15,7 @@ This project uses:
 - Rules lookup from a private GitHub repo using a local built artifact
 - OpenAI-grounded rules answers that send the full local rulebook artifact on each query
 - Manual rules sync and status commands
-- Topic-of-the-day and optional design-prompt scheduled posts
+- Grounded topic-of-the-day and optional design-prompt scheduled posts
 - Poll creation, voting, closing, and historical results in SQLite
 - Health/status command
 
@@ -37,13 +37,17 @@ bot/
   services/
     build_rules_artifact.py
     content.py
+    daily_llm.py
+    daily_sources.py
     github_sync.py
     openai_client.py
     retrieval.py
     rules_index.py
     rules_prompt.py
     scheduler.py
+    topic_seeds.py
   storage/
+    daily_repo.py
     db.py
     poll_repo.py
     state_repo.py
@@ -227,6 +231,25 @@ The bot writes lightweight rules metadata locally in SQLite:
 6. Leave the bot running to allow scheduled posting at the configured time.
 
 The scheduler stores the last posted date in SQLite so it does not repost the same daily item after a restart.
+
+Daily topic posts are generated from a local, grounded topic-seed pipeline:
+
+- seed definitions live in `data/topic_seeds.json`
+- each seed has `id`, `category`, `source_type`, `intent`, `weight`, `cooldown_days`, and `source_hints`
+- the first source gatherer supports `rulebook` and `mixed` seeds by reading the local built rulebook artifact at `GITHUB_RULES_ARTIFACT_PATH`
+- the gatherer finds small excerpts using `source_hints` and includes their labels in the rendered Discord post
+- card and lore source gathering are intentionally left as TODOs until those local artifacts exist
+
+Daily LLM composition is controlled separately from rules Q&A:
+
+- `DAILY_USE_LLM=true` enables OpenAI composition for daily topics
+- `DAILY_MAX_SOURCE_EXCERPTS=3` caps the excerpt packet sent to the model
+- `DAILY_TOPIC_SEEDS_PATH=data/topic_seeds.json` points at the seed catalog
+- `DAILY_TOPIC_MODE=daily` and `DAILY_WEEKLY_MODE=false` are reserved for future mode changes
+
+When daily LLM composition is disabled, unavailable, or fails, the bot uses a template fallback from the selected seed and gathered excerpts. The fallback still includes source labels and does not call out to GitHub or any external runtime state.
+
+The bot records successful topic posts in SQLite in `daily_posts` with the seed id, category, posted timestamp, source labels, channel id, and Discord message id. Seed selection checks that history and applies each seed's `cooldown_days`; if every seed is cooling down, it falls back to the weighted catalog instead of failing the scheduled post.
 
 ### Polls
 

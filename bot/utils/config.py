@@ -41,6 +41,11 @@ class DailyConfig:
     post_hour: int
     post_minute: int
     enable_design_prompt: bool
+    use_llm: bool
+    max_source_excerpts: int
+    topic_mode: str
+    weekly_mode: bool
+    topic_seeds_path: Path
 
 
 @dataclass(slots=True)
@@ -144,6 +149,14 @@ def load_config() -> AppConfig:
         post_hour=int(os.getenv("DAILY_POST_HOUR", "9")),
         post_minute=int(os.getenv("DAILY_POST_MINUTE", "0")),
         enable_design_prompt=_get_bool("ENABLE_DESIGN_PROMPT", default=False),
+        use_llm=_get_bool("DAILY_USE_LLM", default=False),
+        max_source_excerpts=int(os.getenv("DAILY_MAX_SOURCE_EXCERPTS", "3")),
+        topic_mode=os.getenv("DAILY_TOPIC_MODE", "daily").strip() or "daily",
+        weekly_mode=_get_bool("DAILY_WEEKLY_MODE", default=False),
+        topic_seeds_path=_resolve_path(
+            os.getenv("DAILY_TOPIC_SEEDS_PATH", "data/topic_seeds.json"),
+            base_path=project_root,
+        ),
     )
 
     return AppConfig(

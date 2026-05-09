@@ -1,0 +1,65 @@
+[
+  {
+    "id": "battle-round-pressure",
+    "category": "rules spotlight",
+    "source_type": "rulebook",
+    "intent": "Highlight how Battle Rounds shape pacing and player priorities.",
+    "weight": 3,
+    "cooldown_days": 10,
+    "source_hints": ["Battle Rounds", "rounds 5, 9, and 13", "attacker deck"]
+  },
+  {
+    "id": "castle-health-resilience",
+    "category": "rules spotlight",
+    "source_type": "rulebook",
+    "intent": "Prompt discussion about Castle Health and why players stay in the game.",
+    "weight": 2,
+    "cooldown_days": 10,
+    "source_hints": ["Starting Castle Health", "Players are never eliminated", "Castle Health"]
+  },
+  {
+    "id": "resource-purpose",
+    "category": "teach moment",
+    "source_type": "rulebook",
+    "intent": "Summarize what resources are for and invite players to think about tradeoffs.",
+    "weight": 2,
+    "cooldown_days": 7,
+    "source_hints": ["Resources", "Stone", "Gold", "summon Defenders"]
+  },
+  {
+    "id": "basic-defenders",
+    "category": "teach moment",
+    "source_type": "rulebook",
+    "intent": "Feature Basic Defenders as a simple onboarding anchor.",
+    "weight": 2,
+    "cooldown_days": 7,
+    "source_hints": ["Basic Defenders", "Skeleton", "Ghoul", "Merc"]
+  },
+  {
+    "id": "defender-card-anatomy",
+    "category": "component spotlight",
+    "source_type": "rulebook",
+    "intent": "Explain what Defender stats communicate during play.",
+    "weight": 1,
+    "cooldown_days": 14,
+    "source_hints": ["Defenders", "Hit points", "Attack dice", "Persistent status"]
+  },
+  {
+    "id": "attacker-card-anatomy",
+    "category": "component spotlight",
+    "source_type": "rulebook",
+    "intent": "Explain how attackers communicate defeat requirements, damage, and rewards.",
+    "weight": 1,
+    "cooldown_days": 14,
+    "source_hints": ["Attackers", "Successes on die required", "Damage dealt", "Resources gained"]
+  },
+  {
+    "id": "shared-supplies",
+    "category": "table flow",
+    "source_type": "rulebook",
+    "intent": "Prompt players to notice the public markets and shared supplies.",
+    "weight": 1,
+    "cooldown_days": 10,
+    "source_hints": ["Shared supplies", "Battle Card Supply", "Defender Supply", "Castle Improvement Supply"]
+  }
+]

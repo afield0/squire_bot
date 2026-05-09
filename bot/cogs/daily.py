@@ -6,8 +6,10 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
+from bot.models.daily import DailyPost
 from bot.services.content import DailyContentService
 from bot.services.scheduler import ScheduledJob, SchedulerService
+from bot.storage.daily_repo import DailyHistoryRepository
 from bot.storage.state_repo import StateRepository
 
 
@@ -16,11 +18,13 @@ class DailyCog(commands.GroupCog, group_name="daily", group_description="Daily s
         self,
         bot: commands.Bot,
         state_repo: StateRepository,
+        daily_repo: DailyHistoryRepository,
         content_service: DailyContentService,
     ) -> None:
         super().__init__()
         self.bot = bot
         self.state_repo = state_repo
+        self.daily_repo = daily_repo
         self.content_service = content_service
         self.scheduler = SchedulerService(state_repo, bot.config.daily.timezone_name)
         self.topic_job = ScheduledJob(
@@ -52,13 +56,17 @@ class DailyCog(commands.GroupCog, group_name="daily", group_description="Daily s
         if not self._has_manage_guild(interaction):
             await interaction.response.send_message("Manage Server is required.", ephemeral=True)
             return
-        today = self.scheduler.now().date()
-        topic = self.content_service.build_topic_of_day(today).render()
-        lines = [topic]
-        if self.bot.config.daily.enable_design_prompt:
-            lines.append("")
-            lines.append(self.content_service.build_design_prompt(today).render())
-        await interaction.response.send_message("\n".join(lines), ephemeral=True)
+        await interaction.response.defer(thinking=True, ephemeral=True)
+        try:
+            today = self.scheduler.now().date()
+            topic = (await self.content_service.build_topic_of_day(today)).render()
+            lines = [topic]
+            if self.bot.config.daily.enable_design_prompt:
+                lines.append("")
+                lines.append(self.content_service.build_design_prompt(today).render())
+            await interaction.followup.send("\n".join(lines), ephemeral=True)
+        except Exception as exc:
+            await interaction.followup.send(f"Daily preview failed: {exc}", ephemeral=True)
 
     @app_commands.command(name="post", description="Post the current daily content immediately")
     @app_commands.default_permissions(manage_guild=True)
@@ -104,7 +112,9 @@ class DailyCog(commands.GroupCog, group_name="daily", group_description="Daily s
         channel = await self._resolve_channel(channel_id)
         if channel is None:
             return
-        await channel.send(self.content_service.build_topic_of_day(target_date).render())
+        post = await self.content_service.build_topic_of_day(target_date)
+        message = await channel.send(post.render())
+        await self._record_topic_post(post, channel_id=channel_id, message_id=message.id)
 
     async def _send_design_prompt(self, target_date: date) -> None:
         channel_id = self.bot.config.daily.design_prompt_channel_id
@@ -114,6 +124,16 @@ class DailyCog(commands.GroupCog, group_name="daily", group_description="Daily s
         if channel is None:
             return
         await channel.send(self.content_service.build_design_prompt(target_date).render())
+
+    async def _record_topic_post(self, post: DailyPost, channel_id: int, message_id: int) -> None:
+        await self.daily_repo.record_post(
+            seed_id=post.seed_id,
+            category=post.category,
+            posted_at=self.scheduler.now(),
+            source_labels=post.source_labels or [],
+            channel_id=channel_id,
+            message_id=message_id,
+        )
 
     async def _resolve_channel(self, channel_id: int) -> discord.abc.Messageable | None:
         cached = self.bot.get_channel(channel_id)

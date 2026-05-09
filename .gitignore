@@ -16,5 +16,5 @@ bot.db
 # local cloned rules repo
 data/rules_repo/
 data/*
-data
-
+!data/
+!data/topic_seeds.json
