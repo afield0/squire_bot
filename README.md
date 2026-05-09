@@ -19,6 +19,7 @@ This project uses:
 - Manual rules sync and status commands
 - Grounded topic-of-the-day and optional design-prompt scheduled posts
 - Poll creation, voting, closing, and historical results in SQLite
+- Optional first-join greeting in a configured channel plus a capability DM
 - Health/status command
 
 ## Project Layout
@@ -34,6 +35,7 @@ bot/
     polls.py
     rulebook.py
     rules.py
+    welcome.py
   models/
     cards.py
     daily.py
@@ -106,7 +108,13 @@ Recommended bot permissions:
 - `Attach Files` for publishing the rulebook PDF
 - `Manage Messages` in the rulebook channel if `RULEBOOK_DELETE_PREVIOUS=true`
 
-This bot does not require privileged intents for the implemented features. The default intents are sufficient.
+Most features use default intents. The welcome feature requires the privileged `Server Members Intent` in the Discord Developer Portal because it listens for new server members.
+
+Welcome configuration:
+
+- `WELCOME_ENABLED=false`
+- `WELCOME_CHANNEL_ID`
+- `WELCOME_DM_ENABLED=true`
 
 ## GitHub Rules Repo Setup
 
@@ -139,7 +147,8 @@ Behavior:
 - the sparse checkout includes the rulebook directory, card definitions, common code, and rendered card images under `tools/assets/cards`
 - the build step concatenates those files into one local artifact at `data/rules_repo/.bot_cache/manual.md`
 - the card build imports `vampire_defenders.cards.registry.CARD_REGISTRY` from the local checkout and writes normalized card data to `data/rules_repo/.bot_cache/cards.json`
-- rulebook PDF publishing uploads the local compressed PDF to Discord as an attachment; Discord is the player-facing host, not GitHub
+- rulebook PDF publishing uploads the local compressed PDF from the private repo checkout to Discord as an attachment; Discord is the player-facing host, not GitHub
+- if `RULEBOOK_PDF_PATH` is under `GITHUB_RULES_LOCAL_PATH`, the bot automatically adds that PDF path and its metadata path to the sparse checkout paths
 - `/rules ask` sends the entire local artifact plus the user question to OpenAI on each call
 - the prompt tells the model to answer only from the supplied rulebook text and to say when the answer is unclear or missing
 - fallback is user-friendly and does not use local chunk retrieval as the main answer path
@@ -215,6 +224,17 @@ On startup the bot:
 - syncs slash commands
 - initializes the OpenAI rules client if enabled
 
+### Welcome messages
+
+Set `WELCOME_ENABLED=true` and `WELCOME_CHANNEL_ID` to the general/welcome channel id to greet new server members. The bot posts a short channel greeting and, when `WELCOME_DM_ENABLED=true`, sends the member a private message listing useful commands:
+
+- `/rulebook latest`
+- `/rules ask`
+- `/card show`, `/card search`, `/card random`
+- `/bot status`
+
+The bot stores `welcome_greeted:<guild_id>:<member_id>` in SQLite after a successful greeting or DM so it does not repeat the same first-join message for that member.
+
 ## Testing the Core Flows
 
 ### Rules sync
@@ -265,6 +285,27 @@ State is stored in SQLite with these keys:
 - `rulebook_last_published_channel_id`
 
 Auto-publish uses the existing private repo sync flow. After `/rules sync`, and during the lightweight periodic sync check when enabled, the bot compares the current synced commit to the last published commit and only uploads a new PDF when the commit changed.
+
+The compressed PDF should already exist in the private repo at `tools/rulebook/Vampire_Defenders_Rulebook_compressed.pdf`. The bot fetches that file through the private sparse checkout and then republishes it as a Discord attachment.
+
+If the rulebook PDF is built and then committed, write build metadata next to the PDF before the commit so the bot can publish the commit that actually produced the PDF, not the later commit that contains it:
+
+```json
+{
+  "build_commit": "full git sha used to build the PDF",
+  "built_at": "2026-05-09T14:30:00Z"
+}
+```
+
+For the default PDF path, the metadata file should be:
+
+`data/rules_repo/tools/rulebook/Vampire_Defenders_Rulebook_compressed.metadata.json`
+
+In the private repo, that corresponds to:
+
+`tools/rulebook/Vampire_Defenders_Rulebook_compressed.metadata.json`
+
+The bot falls back to the synced repo commit when the metadata file is missing.
 
 ### Rules Q&A behavior
 

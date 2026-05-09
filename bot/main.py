@@ -12,6 +12,7 @@ from bot.cogs.daily import DailyCog
 from bot.cogs.polls import PollsCog
 from bot.cogs.rulebook import RulebookCog
 from bot.cogs.rules import RulesCog
+from bot.cogs.welcome import WelcomeCog
 from bot.services.build_cards_artifact import CardsArtifactBuilder
 from bot.services.build_rules_artifact import RulesArtifactBuilder
 from bot.services.cards import CardRepository
@@ -35,6 +36,7 @@ LOGGER = logging.getLogger(__name__)
 class VampireDefendersBot(commands.Bot):
     def __init__(self, config: AppConfig) -> None:
         intents = discord.Intents.default()
+        intents.members = config.welcome.enabled
         super().__init__(
             command_prefix=commands.when_mentioned,
             intents=intents,
@@ -99,6 +101,7 @@ class VampireDefendersBot(commands.Bot):
             )
         )
         await self.add_cog(BotStatusCog(bot=self))
+        await self.add_cog(WelcomeCog(bot=self, state_repo=self.state_repo))
 
         if self.config.discord_guild_id:
             guild = discord.Object(id=self.config.discord_guild_id)

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import logging
+import json
+import random
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 
 import discord
 from discord.ext import commands
@@ -17,14 +20,31 @@ RULEBOOK_LAST_PUBLISHED_MESSAGE_ID = "rulebook_last_published_message_id"
 RULEBOOK_LAST_PUBLISHED_AT = "rulebook_last_published_at"
 RULEBOOK_LAST_PUBLISHED_CHANNEL_ID = "rulebook_last_published_channel_id"
 
+RULEBOOK_POST_LINES = [
+    "The latest rulebook has emerged from the crypt.",
+    "Fresh ink, sharpened stakes, and updated rules await.",
+    "A new rulebook has crossed the threshold.",
+    "The night watch has filed an updated rulebook.",
+    "The castle archives have yielded a new rulebook.",
+    "A fresh dispatch from the vampire front is attached.",
+    "The latest rules have been sealed in wax and posted.",
+    "Moonlight reveals a new edition of the rulebook.",
+    "The defenders have updated their field manual.",
+    "A new rulebook rises for tonight's table.",
+    "The latest tome is ready for brave defenders.",
+    "The archive doors creak open with a new rulebook.",
+]
+
 
 @dataclass(slots=True)
 class RulebookPublishRecord:
     commit: str
+    source_commit: str
     message_id: int
     channel_id: int
     published_at: str
     message_url: str | None
+    build_metadata: "RulebookBuildMetadata | None"
 
 
 @dataclass(slots=True)
@@ -33,6 +53,13 @@ class RulebookPublishState:
     message_id: int | None
     channel_id: int | None
     published_at: str | None
+
+
+@dataclass(slots=True)
+class RulebookBuildMetadata:
+    build_commit: str
+    built_at: str | None
+    metadata_path: Path
 
 
 class RulebookPublishService:
@@ -66,12 +93,15 @@ class RulebookPublishService:
             )
 
         previous_state = await self.get_state()
-        short_commit = commit[:12]
+        build_metadata = self._load_build_metadata()
+        published_commit = build_metadata.build_commit if build_metadata else commit
+        short_commit = published_commit[:12]
         published_at = datetime.now(UTC).isoformat()
         body = "\n".join(
             [
                 "**Latest Vampire Defenders Rulebook**",
                 f"Build commit: `{short_commit}`",
+                self._random_post_line(),
                 "",
                 "Attached below.",
             ]
@@ -88,11 +118,13 @@ class RulebookPublishService:
             raise RuntimeError(f"Discord rejected the rulebook upload: {exc}") from exc
 
         record = RulebookPublishRecord(
-            commit=commit,
+            commit=published_commit,
+            source_commit=commit,
             message_id=message.id,
             channel_id=self.config.channel_id,
             published_at=published_at,
             message_url=message.jump_url,
+            build_metadata=build_metadata,
         )
         await self._store_record(record)
 
@@ -101,7 +133,7 @@ class RulebookPublishService:
 
         LOGGER.info(
             "Published rulebook commit=%s channel_id=%s message_id=%s path=%s size=%s",
-            commit,
+            published_commit,
             self.config.channel_id,
             message.id,
             self.config.pdf_path,
@@ -115,7 +147,9 @@ class RulebookPublishService:
         if not self.config.channel_id:
             return None
         state = await self.get_state()
-        if state.commit == commit:
+        build_metadata = self._load_build_metadata()
+        published_commit = build_metadata.build_commit if build_metadata else commit
+        if state.commit == published_commit:
             return None
         return await self.publish(commit)
 
@@ -185,3 +219,31 @@ class RulebookPublishService:
     def _upload_limit(channel: discord.abc.Messageable) -> int | None:
         guild = getattr(channel, "guild", None)
         return getattr(guild, "filesize_limit", None) or 25 * 1024 * 1024
+
+    def _load_build_metadata(self) -> RulebookBuildMetadata | None:
+        metadata_path = self._metadata_path()
+        if not metadata_path.exists():
+            return None
+        try:
+            payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            LOGGER.warning("Could not read rulebook build metadata at %s: %s", metadata_path, exc)
+            return None
+
+        build_commit = str(payload.get("build_commit") or payload.get("commit") or "").strip()
+        if not build_commit:
+            LOGGER.warning("Rulebook build metadata at %s does not include build_commit", metadata_path)
+            return None
+        built_at = payload.get("built_at")
+        return RulebookBuildMetadata(
+            build_commit=build_commit,
+            built_at=str(built_at).strip() if built_at else None,
+            metadata_path=metadata_path,
+        )
+
+    def _metadata_path(self) -> Path:
+        return self.config.pdf_path.with_name(f"{self.config.pdf_path.stem}.metadata.json")
+
+    @staticmethod
+    def _random_post_line() -> str:
+        return random.choice(RULEBOOK_POST_LINES)

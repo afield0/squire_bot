@@ -40,6 +40,8 @@ class RulebookCog(commands.GroupCog, group_name="rulebook", group_description="P
                 f"Commit: `{record.commit}`",
                 f"PDF path: `{self.bot.config.rulebook.pdf_path}`",
             ]
+            if record.build_metadata and record.build_metadata.built_at:
+                lines.append(f"PDF built at: `{record.build_metadata.built_at}`")
             if record.message_url:
                 lines.append(f"Message: {record.message_url}")
             await interaction.followup.send("\n".join(lines), ephemeral=True)
@@ -74,6 +76,7 @@ class RulebookCog(commands.GroupCog, group_name="rulebook", group_description="P
         await interaction.response.defer(thinking=True, ephemeral=True)
         state = await self.publish_service.get_state()
         pdf_path = self.bot.config.rulebook.pdf_path
+        metadata_path = pdf_path.with_name(f"{pdf_path.stem}.metadata.json")
         pdf_exists = pdf_path.exists()
         pdf_size = pdf_path.stat().st_size if pdf_exists else 0
         try:
@@ -84,6 +87,8 @@ class RulebookCog(commands.GroupCog, group_name="rulebook", group_description="P
         lines = [
             f"Configured channel id: `{self.bot.config.rulebook.channel_id or 'unset'}`",
             f"Configured PDF path: `{pdf_path}`",
+            f"Metadata path: `{metadata_path}`",
+            f"Metadata exists: `{metadata_path.exists()}`",
             f"PDF exists: `{pdf_exists}`",
             f"PDF size: `{pdf_size}` bytes",
             f"Current synced commit: `{current_commit}`",

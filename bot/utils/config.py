@@ -58,6 +58,13 @@ class RulebookPublishConfig:
 
 
 @dataclass(slots=True)
+class WelcomeConfig:
+    enabled: bool
+    channel_id: int | None
+    dm_enabled: bool
+
+
+@dataclass(slots=True)
 class AppConfig:
     discord_bot_token: str
     discord_application_id: int
@@ -69,6 +76,7 @@ class AppConfig:
     openai: OpenAIConfig
     daily: DailyConfig
     rulebook: RulebookPublishConfig
+    welcome: WelcomeConfig
 
 
 def _get_required(name: str) -> str:
@@ -147,6 +155,49 @@ def _load_openai_config() -> OpenAIConfig:
     )
 
 
+def _with_rulebook_pdf_include(
+    rules_sync: RulesSyncConfig,
+    rulebook: RulebookPublishConfig,
+) -> RulesSyncConfig:
+    try:
+        relative_pdf_path = rulebook.pdf_path.relative_to(rules_sync.local_checkout_path)
+    except ValueError:
+        return rules_sync
+
+    include_paths = [
+        relative_pdf_path.as_posix(),
+        rulebook.pdf_path.with_name(f"{rulebook.pdf_path.stem}.metadata.json")
+        .relative_to(rules_sync.local_checkout_path)
+        .as_posix(),
+    ]
+    missing_include_paths = [
+        include_path
+        for include_path in include_paths
+        if not any(_sparse_path_covers(existing, include_path) for existing in rules_sync.include_paths)
+    ]
+    if not missing_include_paths:
+        return rules_sync
+
+    return RulesSyncConfig(
+        repo_url=rules_sync.repo_url,
+        branch=rules_sync.branch,
+        local_checkout_path=rules_sync.local_checkout_path,
+        include_paths=[*rules_sync.include_paths, *missing_include_paths],
+        build_command=rules_sync.build_command,
+        artifact_path=rules_sync.artifact_path,
+        cards_artifact_path=rules_sync.cards_artifact_path,
+        rules_index_path=rules_sync.rules_index_path,
+        github_token=rules_sync.github_token,
+    )
+
+
+def _sparse_path_covers(existing: str, target: str) -> bool:
+    normalized = existing.strip().strip("/")
+    if normalized == target:
+        return True
+    return target.startswith(f"{normalized}/")
+
+
 def load_rules_sync_config() -> RulesSyncConfig:
     load_dotenv()
     return _load_rules_sync_config()
@@ -188,6 +239,12 @@ def load_config() -> AppConfig:
         auto_publish=_get_bool("RULEBOOK_AUTO_PUBLISH", default=True),
         delete_previous=_get_bool("RULEBOOK_DELETE_PREVIOUS", default=True),
     )
+    rules_sync = _with_rulebook_pdf_include(rules_sync, rulebook)
+    welcome = WelcomeConfig(
+        enabled=_get_bool("WELCOME_ENABLED", default=False),
+        channel_id=_get_optional_int("WELCOME_CHANNEL_ID"),
+        dm_enabled=_get_bool("WELCOME_DM_ENABLED", default=True),
+    )
 
     return AppConfig(
         discord_bot_token=_get_required("DISCORD_BOT_TOKEN"),
@@ -200,4 +257,5 @@ def load_config() -> AppConfig:
         openai=openai,
         daily=daily,
         rulebook=rulebook,
+        welcome=welcome,
     )
