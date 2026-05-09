@@ -13,6 +13,8 @@ This project uses:
 ## Features
 
 - Rules lookup from a private GitHub repo using a local built artifact
+- Rulebook PDF publishing to Discord as the player-facing host for the private repo's latest compressed PDF
+- Card lookup from a local JSON artifact built from the game repo card registry
 - OpenAI-grounded rules answers that send the full local rulebook artifact on each query
 - Manual rules sync and status commands
 - Grounded topic-of-the-day and optional design-prompt scheduled posts
@@ -27,21 +29,27 @@ bot/
   cogs/
     admin.py
     bot_status.py
+    cards.py
     daily.py
     polls.py
+    rulebook.py
     rules.py
   models/
+    cards.py
     daily.py
     polls.py
     rules.py
   services/
+    build_cards_artifact.py
     build_rules_artifact.py
+    cards.py
     content.py
     daily_llm.py
     daily_sources.py
     github_sync.py
     openai_client.py
     retrieval.py
+    rulebook_publish.py
     rules_index.py
     rules_prompt.py
     scheduler.py
@@ -95,6 +103,8 @@ Recommended bot permissions:
 - `Read Message History`
 - `Add Reactions`
 - `Manage Messages` for removing invalid or replaced votes cleanly
+- `Attach Files` for publishing the rulebook PDF
+- `Manage Messages` in the rulebook channel if `RULEBOOK_DELETE_PREVIOUS=true`
 
 This bot does not require privileged intents for the implemented features. The default intents are sufficient.
 
@@ -107,10 +117,15 @@ Required environment variables:
 - `GITHUB_TOKEN`: fine-grained GitHub PAT with read access to the private repo
 - `GITHUB_RULES_REPO_URL=https://github.com/something`
 - `GITHUB_RULES_BRANCH=master`
-- `GITHUB_RULES_INCLUDE_PATHS=tools/rulebook/src`
+- `GITHUB_RULES_INCLUDE_PATHS=tools/rulebook,vampire_defenders/cards,vampire_defenders/common,tools/assets/cards`
 - `GITHUB_RULES_LOCAL_PATH=data/rules_repo`
 - `GITHUB_RULES_BUILD_COMMAND=python -m bot.services.build_rules_artifact`
 - `GITHUB_RULES_ARTIFACT_PATH=data/rules_repo/.bot_cache/manual.md`
+- `CARDS_ARTIFACT_PATH=data/rules_repo/.bot_cache/cards.json`
+- `RULEBOOK_CHANNEL_ID`
+- `RULEBOOK_PDF_PATH=data/rules_repo/tools/rulebook/Vampire_Defenders_Rulebook_compressed.pdf`
+- `RULEBOOK_AUTO_PUBLISH=true`
+- `RULEBOOK_DELETE_PREVIOUS=true`
 - `OPENAI_API_KEY`
 - `OPENAI_MODEL=gpt-5`
 - `OPENAI_TEMPERATURE=` optional, blank by default
@@ -121,8 +136,10 @@ Behavior:
 
 - if the repo does not exist locally, the bot performs a sparse clone
 - if it exists, the bot updates it with a pull
-- the bot only reads Markdown under `tools/rulebook/src`
+- the sparse checkout includes the rulebook directory, card definitions, common code, and rendered card images under `tools/assets/cards`
 - the build step concatenates those files into one local artifact at `data/rules_repo/.bot_cache/manual.md`
+- the card build imports `vampire_defenders.cards.registry.CARD_REGISTRY` from the local checkout and writes normalized card data to `data/rules_repo/.bot_cache/cards.json`
+- rulebook PDF publishing uploads the local compressed PDF to Discord as an attachment; Discord is the player-facing host, not GitHub
 - `/rules ask` sends the entire local artifact plus the user question to OpenAI on each call
 - the prompt tells the model to answer only from the supplied rulebook text and to say when the answer is unclear or missing
 - fallback is user-friendly and does not use local chunk retrieval as the main answer path
@@ -156,6 +173,18 @@ Rules:
 - `/rules sync`
 - `/rules status`
 - `/rules debug question:<text>`
+
+Cards:
+
+- `/card show query:<text>`
+- `/card search query:<text>`
+- `/card random type:<optional>`
+
+Rulebook:
+
+- `/rulebook post`
+- `/rulebook latest`
+- `/rulebook status`
 
 Daily:
 
@@ -202,6 +231,7 @@ You can also run the artifact build locally:
 
 ```bash
 python -m bot.services.build_rules_artifact
+python -m bot.services.build_cards_artifact
 ```
 
 The bot writes lightweight rules metadata locally in SQLite:
@@ -209,6 +239,32 @@ The bot writes lightweight rules metadata locally in SQLite:
 - last successful sync time
 - last artifact build time
 - current commit hash
+
+### Rulebook PDF publishing
+
+The bot can publish the private game's latest compressed rulebook PDF into a Discord channel without making `afield0/vampire-defenders-2` public.
+
+Set:
+
+- `RULEBOOK_CHANNEL_ID` to the Discord channel that should host the PDF attachment
+- `RULEBOOK_PDF_PATH=data/rules_repo/tools/rulebook/Vampire_Defenders_Rulebook_compressed.pdf`
+- `RULEBOOK_AUTO_PUBLISH=true` to publish after a successful sync/build when the synced commit changes
+- `RULEBOOK_DELETE_PREVIOUS=true` to delete the previously published rulebook message after the new upload succeeds
+
+Commands:
+
+- `/rulebook post` publishes the current local PDF immediately; admin only
+- `/rulebook latest` shows the latest known published commit, time, and message link when available
+- `/rulebook status` shows channel, PDF path, file size, current synced commit, latest published state, and auto-publish settings; admin only
+
+State is stored in SQLite with these keys:
+
+- `rulebook_last_published_commit`
+- `rulebook_last_published_message_id`
+- `rulebook_last_published_at`
+- `rulebook_last_published_channel_id`
+
+Auto-publish uses the existing private repo sync flow. After `/rules sync`, and during the lightweight periodic sync check when enabled, the bot compares the current synced commit to the last published commit and only uploads a new PDF when the commit changed.
 
 ### Rules Q&A behavior
 
@@ -236,9 +292,10 @@ Daily topic posts are generated from a local, grounded topic-seed pipeline:
 
 - seed definitions live in `data/topic_seeds.json`
 - each seed has `id`, `category`, `source_type`, `intent`, `weight`, `cooldown_days`, and `source_hints`
-- the first source gatherer supports `rulebook` and `mixed` seeds by reading the local built rulebook artifact at `GITHUB_RULES_ARTIFACT_PATH`
+- the source gatherer supports `rulebook`, `cards`, and `mixed` seeds when the matching local artifacts exist
+- card source gathering reads `CARDS_ARTIFACT_PATH` and produces compact source labels such as `Card: Bell Tower`
 - the gatherer finds small excerpts using `source_hints` and includes their labels in the rendered Discord post
-- card and lore source gathering are intentionally left as TODOs until those local artifacts exist
+- lore source gathering is intentionally left as a TODO until a local lore artifact exists
 
 Daily LLM composition is controlled separately from rules Q&A:
 
@@ -272,4 +329,4 @@ Polls and votes are stored in SQLite and remain available across restarts.
 
 - This version intentionally keeps the rules architecture simple and readable.
 - The primary answer path does not use local chunk retrieval or semantic search.
-- TODOs for chunk retrieval and card lookup should stay in the rules services, not in the Discord cog.
+- TODOs for chunk retrieval and lore lookup should stay in services, not in Discord cogs.

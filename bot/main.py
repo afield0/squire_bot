@@ -7,15 +7,20 @@ import discord
 from discord.ext import commands
 
 from bot.cogs.bot_status import BotStatusCog
+from bot.cogs.cards import CardsCog
 from bot.cogs.daily import DailyCog
 from bot.cogs.polls import PollsCog
+from bot.cogs.rulebook import RulebookCog
 from bot.cogs.rules import RulesCog
+from bot.services.build_cards_artifact import CardsArtifactBuilder
 from bot.services.build_rules_artifact import RulesArtifactBuilder
+from bot.services.cards import CardRepository
 from bot.services.content import DailyContentService
 from bot.services.daily_llm import DailyLLMComposer
 from bot.services.daily_sources import DailySourceGatherer
 from bot.services.github_sync import GitHubRulesSyncService
 from bot.services.openai_client import OpenAIRulesClient
+from bot.services.rulebook_publish import RulebookPublishService
 from bot.services.topic_seeds import TopicSeedCatalog
 from bot.storage.db import Database
 from bot.storage.daily_repo import DailyHistoryRepository
@@ -42,9 +47,13 @@ class VampireDefendersBot(commands.Bot):
         self.daily_repo = DailyHistoryRepository(self.database)
         self.rules_sync = GitHubRulesSyncService(config.rules_sync)
         self.rules_artifact_builder = RulesArtifactBuilder(config.rules_sync)
+        self.cards_artifact_builder = CardsArtifactBuilder(config.rules_sync)
+        self.card_repository = CardRepository(config.rules_sync.cards_artifact_path)
         self.openai_rules_client = OpenAIRulesClient(config.openai)
+        self.rulebook_publish_service = RulebookPublishService(config.rulebook, self.state_repo, self)
         self.daily_source_gatherer = DailySourceGatherer(
             config.rules_sync.artifact_path,
+            config.rules_sync.cards_artifact_path,
             max_excerpts=config.daily.max_source_excerpts,
         )
         self.daily_content_service = DailyContentService(
@@ -62,9 +71,19 @@ class VampireDefendersBot(commands.Bot):
                 state_repo=self.state_repo,
                 sync_service=self.rules_sync,
                 artifact_builder=self.rules_artifact_builder,
+                cards_artifact_builder=self.cards_artifact_builder,
                 openai_client=self.openai_rules_client,
+                rulebook_publish_service=self.rulebook_publish_service,
             )
         )
+        await self.add_cog(
+            RulebookCog(
+                bot=self,
+                sync_service=self.rules_sync,
+                publish_service=self.rulebook_publish_service,
+            )
+        )
+        await self.add_cog(CardsCog(card_repository=self.card_repository))
         await self.add_cog(
             DailyCog(
                 bot=self,

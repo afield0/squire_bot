@@ -61,5 +61,55 @@
     "weight": 1,
     "cooldown_days": 10,
     "source_hints": ["Shared supplies", "Battle Card Supply", "Defender Supply", "Castle Improvement Supply"]
+  },
+  {
+    "id": "card-spotlight-iron-peg-watchtower",
+    "category": "card_spotlight",
+    "source_type": "cards",
+    "intent": "Use Iron-Peg Watchtower as a strategy fork: what does this card ask players to value?",
+    "weight": 1,
+    "cooldown_days": 14,
+    "archetype": "strategy_fork",
+    "source_hints": ["Iron-Peg Watchtower"]
+  },
+  {
+    "id": "card-spotlight-blood-and-mortar-tithe",
+    "category": "card_spotlight",
+    "source_type": "cards",
+    "intent": "Probe whether Blood-and-Mortar Tithe creates a clean payoff, a rules fight, or a balance concern.",
+    "weight": 1,
+    "cooldown_days": 14,
+    "archetype": "balance_probe",
+    "source_hints": ["Blood-and-Mortar Tithe"]
+  },
+  {
+    "id": "underused-defender",
+    "category": "card_spotlight",
+    "source_type": "cards",
+    "intent": "Spotlight an underused defender and ask what table state would make it worth choosing.",
+    "weight": 1,
+    "cooldown_days": 10,
+    "archetype": "strategy_fork",
+    "source_hints": ["underused defender"]
+  },
+  {
+    "id": "swingy-objective",
+    "category": "card_spotlight",
+    "source_type": "cards",
+    "intent": "Find a swingy objective and ask whether its reward pressure creates interesting risk.",
+    "weight": 1,
+    "cooldown_days": 10,
+    "archetype": "balance_probe",
+    "source_hints": ["swingy objective"]
+  },
+  {
+    "id": "confusing-battle-card",
+    "category": "card_spotlight",
+    "source_type": "cards",
+    "intent": "Use a battle card as a rules-fight prompt: what would players need clarified before resolving it?",
+    "weight": 1,
+    "cooldown_days": 10,
+    "archetype": "rules_fight",
+    "source_hints": ["confusing battle card"]
   }
 ]

@@ -4,6 +4,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from bot.models.cards import CardSearchResult, NormalizedCard
+from bot.services.cards import CardRepository
 from bot.services.topic_seeds import TopicSeed
 
 
@@ -40,8 +42,17 @@ class RulebookSection:
 
 
 class DailySourceGatherer:
-    def __init__(self, rulebook_artifact_path: Path, max_excerpts: int = 3) -> None:
+    def __init__(
+        self,
+        rulebook_artifact_path: Path,
+        cards_artifact_path: Path | None = None,
+        max_excerpts: int = 3,
+    ) -> None:
+        if isinstance(cards_artifact_path, int):
+            max_excerpts = cards_artifact_path
+            cards_artifact_path = None
         self.rulebook_artifact_path = rulebook_artifact_path
+        self.card_repository = CardRepository(cards_artifact_path or rulebook_artifact_path.with_name("cards.json"))
         self.max_excerpts = max(1, max_excerpts)
 
     def available_source_types(self) -> set[str]:
@@ -49,15 +60,19 @@ class DailySourceGatherer:
         if self.rulebook_artifact_path.exists():
             available.add("rulebook")
             available.add("mixed")
-        # TODO: Add card source availability when card data has a stable local artifact.
+        if self.card_repository.exists():
+            available.add("cards")
+            available.add("mixed")
         # TODO: Add lore source availability when lore has a stable local artifact.
         return available
 
     async def gather(self, seed: TopicSeed) -> SourcePacket:
-        if seed.source_type not in {"rulebook", "mixed"}:
-            # TODO: Gather card and lore sources once those artifacts exist locally.
-            return SourcePacket(excerpts=[])
-        return self._gather_rulebook(seed)
+        excerpts: list[SourceExcerpt] = []
+        if seed.source_type in {"cards", "mixed"}:
+            excerpts.extend(self._gather_cards(seed).excerpts)
+        if len(excerpts) < self.max_excerpts and seed.source_type in {"rulebook", "mixed"}:
+            excerpts.extend(self._gather_rulebook(seed).excerpts)
+        return SourcePacket(excerpts=excerpts[: self.max_excerpts])
 
     def _gather_rulebook(self, seed: TopicSeed) -> SourcePacket:
         if not self.rulebook_artifact_path.exists():
@@ -89,6 +104,60 @@ class DailySourceGatherer:
             excerpts.append(SourceExcerpt(label=overview.label, text=self._clean_excerpt(overview.text)))
 
         return SourcePacket(excerpts=excerpts)
+
+    def _gather_cards(self, seed: TopicSeed) -> SourcePacket:
+        if not self.card_repository.exists():
+            return SourcePacket(excerpts=[])
+
+        try:
+            cards = self.card_repository.load()
+        except Exception:
+            return SourcePacket(excerpts=[])
+
+        results: list[CardSearchResult] = []
+        for hint in seed.source_hints:
+            results.extend(self.card_repository.search_cards(hint, limit=self.max_excerpts))
+
+        if not results:
+            results = self._search_cards_by_seed_text(cards, seed)
+
+        selected: list[NormalizedCard] = []
+        seen_ids: set[str] = set()
+        for result in sorted(results, key=lambda item: (-item.score, item.card.name.lower())):
+            if result.card.id in seen_ids:
+                continue
+            selected.append(result.card)
+            seen_ids.add(result.card.id)
+            if len(selected) >= self.max_excerpts:
+                break
+
+        if not selected and cards:
+            preferred_type = self._infer_card_type(seed)
+            typed_cards = [card for card in cards if card.card_type == preferred_type] if preferred_type else []
+            selected.append((typed_cards or cards)[0])
+
+        return SourcePacket(
+            excerpts=[
+                SourceExcerpt(label=f"Card: {card.name}", text=card.render_excerpt())
+                for card in selected[: self.max_excerpts]
+            ]
+        )
+
+    def _search_cards_by_seed_text(self, cards: list[NormalizedCard], seed: TopicSeed) -> list[CardSearchResult]:
+        query = " ".join([seed.category, seed.intent, *seed.source_hints]).lower()
+        results: list[CardSearchResult] = []
+        preferred_type = self._infer_card_type(seed)
+        for card in cards:
+            score = 0.0
+            haystack = f"{card.name} {card.id} {card.card_type} {card.render_excerpt()}".lower()
+            if preferred_type and card.card_type == preferred_type:
+                score += 0.3
+            for token in re.findall(r"[a-z0-9]+", query):
+                if len(token) >= 4 and token in haystack:
+                    score += 0.1
+            if score > 0:
+                results.append(CardSearchResult(card=card, score=score, reason="seed text"))
+        return results
 
     @staticmethod
     def _parse_rulebook_sections(text: str) -> list[RulebookSection]:
@@ -137,6 +206,23 @@ class DailySourceGatherer:
             if len(token) >= 5 and token in haystack:
                 score += 1
         return score
+
+    @staticmethod
+    def _infer_card_type(seed: TopicSeed) -> str | None:
+        text = f"{seed.category} {seed.intent} {' '.join(seed.source_hints)}".lower()
+        type_aliases = {
+            "attacker": "attacker",
+            "defender": "defender",
+            "battle": "battle",
+            "location": "location",
+            "castle": "castle_improvement",
+            "improvement": "castle_improvement",
+            "objective": "objective",
+        }
+        for token, card_type in type_aliases.items():
+            if token in text:
+                return card_type
+        return None
 
     @staticmethod
     def _clean_excerpt(text: str, limit: int = 700) -> str:

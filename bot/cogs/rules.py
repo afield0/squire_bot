@@ -8,12 +8,14 @@ from pathlib import Path
 
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 from bot.models.rules import LLMAnswer
+from bot.services.build_cards_artifact import CardsArtifactBuilder
 from bot.services.build_rules_artifact import RulesArtifactBuilder
 from bot.services.github_sync import GitHubRulesSyncService
 from bot.services.openai_client import OpenAIRulesClient
+from bot.services.rulebook_publish import RulebookPublishService
 from bot.storage.state_repo import StateRepository
 
 LOGGER = logging.getLogger(__name__)
@@ -30,14 +32,38 @@ class RulesCog(commands.GroupCog, group_name="rules", group_description="Rules l
         state_repo: StateRepository,
         sync_service: GitHubRulesSyncService,
         artifact_builder: RulesArtifactBuilder,
+        cards_artifact_builder: CardsArtifactBuilder,
         openai_client: OpenAIRulesClient,
+        rulebook_publish_service: RulebookPublishService,
     ) -> None:
         super().__init__()
         self.bot = bot
         self.state_repo = state_repo
         self.sync_service = sync_service
         self.artifact_builder = artifact_builder
+        self.cards_artifact_builder = cards_artifact_builder
         self.openai_client = openai_client
+        self.rulebook_publish_service = rulebook_publish_service
+        self._sync_lock = asyncio.Lock()
+        if self.bot.config.rulebook.auto_publish:
+            self.rulebook_auto_publish_loop.start()
+
+    def cog_unload(self) -> None:
+        if self.rulebook_auto_publish_loop.is_running():
+            self.rulebook_auto_publish_loop.cancel()
+
+    @tasks.loop(minutes=15)
+    async def rulebook_auto_publish_loop(self) -> None:
+        if not self.bot.config.rulebook.channel_id:
+            return
+        try:
+            await self._sync_build_and_maybe_publish_rulebook()
+        except Exception as exc:
+            LOGGER.warning("Rulebook auto-publish check failed: %s", exc)
+
+    @rulebook_auto_publish_loop.before_loop
+    async def before_rulebook_auto_publish_loop(self) -> None:
+        await self.bot.wait_until_ready()
 
     @app_commands.command(name="ask", description="Ask a rules question from the local rulebook artifact")
     async def ask(self, interaction: discord.Interaction, question: str) -> None:
@@ -102,23 +128,24 @@ class RulesCog(commands.GroupCog, group_name="rules", group_description="Rules l
 
         await interaction.response.defer(thinking=True, ephemeral=True)
         try:
-            commit = await self.sync_service.ensure_repo_synced()
-            artifact_path = await self._build_artifact()
-            artifact_size = artifact_path.stat().st_size
+            result = await self._sync_build_and_maybe_publish_rulebook()
 
-            now = datetime.now(UTC).isoformat()
-            await self.state_repo.set(RULES_LAST_SYNC_AT, now)
-            await self.state_repo.set(RULES_LAST_BUILD_AT, now)
-            await self.state_repo.set(RULES_CURRENT_COMMIT, commit)
+            lines = [
+                f"Rules sync completed at commit `{result['commit']}`.",
+                f"Artifact: `{result['artifact_path']}`",
+                f"Artifact size: `{result['artifact_size']}` bytes",
+                f"Cards artifact: `{result['cards_artifact_path']}`",
+                f"Cards artifact size: `{result['cards_artifact_size']}` bytes",
+            ]
+            if result["rulebook_publish"]:
+                lines.append(f"Rulebook PDF published: `{result['rulebook_publish'].message_id}`")
+                if result["rulebook_publish"].message_url:
+                    lines.append(f"Rulebook message: {result['rulebook_publish'].message_url}")
+            if result["rulebook_publish_error"]:
+                lines.append(f"Rulebook auto-publish failed: `{result['rulebook_publish_error']}`")
 
             await interaction.followup.send(
-                "\n".join(
-                    [
-                        f"Rules sync completed at commit `{commit}`.",
-                        f"Artifact: `{artifact_path}`",
-                        f"Artifact size: `{artifact_size}` bytes",
-                    ]
-                ),
+                "\n".join(lines),
                 ephemeral=True,
             )
         except Exception as exc:
@@ -139,6 +166,9 @@ class RulesCog(commands.GroupCog, group_name="rules", group_description="Rules l
         artifact_path = self.bot.config.rules_sync.artifact_path
         artifact_exists = artifact_path.exists()
         artifact_size = artifact_path.stat().st_size if artifact_exists else 0
+        cards_artifact_path = self.bot.config.rules_sync.cards_artifact_path
+        cards_artifact_exists = cards_artifact_path.exists()
+        cards_artifact_size = cards_artifact_path.stat().st_size if cards_artifact_exists else 0
         lines = [
             f"Repo URL: `{status.repo_url}`",
             f"Branch: `{status.branch}`",
@@ -147,6 +177,9 @@ class RulesCog(commands.GroupCog, group_name="rules", group_description="Rules l
             f"Artifact path: `{artifact_path}`",
             f"Artifact exists: `{artifact_exists}`",
             f"Artifact size: `{artifact_size}` bytes",
+            f"Cards artifact path: `{cards_artifact_path}`",
+            f"Cards artifact exists: `{cards_artifact_exists}`",
+            f"Cards artifact size: `{cards_artifact_size}` bytes",
             f"Last successful sync: `{last_sync_at or 'never'}`",
             f"Last artifact build: `{last_build_at or 'never'}`",
             f"LLM mode enabled: `{self.bot.config.openai.rules_use_llm}`",
@@ -228,6 +261,34 @@ class RulesCog(commands.GroupCog, group_name="rules", group_description="Rules l
         artifact_path = self.artifact_builder.build()
         LOGGER.info("Rules artifact build completed path=%s size=%s", artifact_path, artifact_path.stat().st_size)
         return artifact_path
+
+    async def _sync_build_and_maybe_publish_rulebook(self) -> dict[str, object]:
+        async with self._sync_lock:
+            commit = await self.sync_service.ensure_repo_synced()
+            artifact_path = await self._build_artifact()
+            cards_artifact_path = await asyncio.to_thread(self.cards_artifact_builder.build)
+
+            now = datetime.now(UTC).isoformat()
+            await self.state_repo.set(RULES_LAST_SYNC_AT, now)
+            await self.state_repo.set(RULES_LAST_BUILD_AT, now)
+            await self.state_repo.set(RULES_CURRENT_COMMIT, commit)
+
+            rulebook_publish = None
+            rulebook_publish_error = None
+            try:
+                rulebook_publish = await self.rulebook_publish_service.maybe_publish_for_commit(commit)
+            except Exception as exc:
+                rulebook_publish_error = str(exc)
+                LOGGER.warning("Rulebook auto-publish failed after sync: %s", exc)
+            return {
+                "commit": commit,
+                "artifact_path": artifact_path,
+                "artifact_size": artifact_path.stat().st_size,
+                "cards_artifact_path": cards_artifact_path,
+                "cards_artifact_size": cards_artifact_path.stat().st_size,
+                "rulebook_publish": rulebook_publish,
+                "rulebook_publish_error": rulebook_publish_error,
+            }
 
     async def _load_rulebook_text(self) -> tuple[Path, str]:
         artifact_path = self.artifact_builder.artifact_path()

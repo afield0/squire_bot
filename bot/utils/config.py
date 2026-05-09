@@ -15,6 +15,7 @@ class RulesSyncConfig:
     include_paths: list[str]
     build_command: str | None
     artifact_path: Path
+    cards_artifact_path: Path
     rules_index_path: Path
     github_token: str | None
 
@@ -49,6 +50,14 @@ class DailyConfig:
 
 
 @dataclass(slots=True)
+class RulebookPublishConfig:
+    channel_id: int | None
+    pdf_path: Path
+    auto_publish: bool
+    delete_previous: bool
+
+
+@dataclass(slots=True)
 class AppConfig:
     discord_bot_token: str
     discord_application_id: int
@@ -59,6 +68,7 @@ class AppConfig:
     rules_sync: RulesSyncConfig
     openai: OpenAIConfig
     daily: DailyConfig
+    rulebook: RulebookPublishConfig
 
 
 def _get_required(name: str) -> str:
@@ -103,13 +113,20 @@ def _load_rules_sync_config() -> RulesSyncConfig:
         ),
         include_paths=[
             path.strip()
-            for path in os.getenv("GITHUB_RULES_INCLUDE_PATHS", "tools/rulebook/src").split(",")
+            for path in os.getenv(
+                "GITHUB_RULES_INCLUDE_PATHS",
+                "tools/rulebook,vampire_defenders/cards,vampire_defenders/common,tools/assets/cards",
+            ).split(",")
             if path.strip()
         ],
         build_command=os.getenv("GITHUB_RULES_BUILD_COMMAND", "python -m bot.services.build_rules_artifact")
         or None,
         artifact_path=_resolve_path(
             os.getenv("GITHUB_RULES_ARTIFACT_PATH", "data/rules_repo/.bot_cache/manual.md"),
+            base_path=project_root,
+        ),
+        cards_artifact_path=_resolve_path(
+            os.getenv("CARDS_ARTIFACT_PATH", "data/rules_repo/.bot_cache/cards.json"),
             base_path=project_root,
         ),
         rules_index_path=_resolve_path(
@@ -159,6 +176,19 @@ def load_config() -> AppConfig:
         ),
     )
 
+    rulebook = RulebookPublishConfig(
+        channel_id=_get_optional_int("RULEBOOK_CHANNEL_ID"),
+        pdf_path=_resolve_path(
+            os.getenv(
+                "RULEBOOK_PDF_PATH",
+                "data/rules_repo/tools/rulebook/Vampire_Defenders_Rulebook_compressed.pdf",
+            ),
+            base_path=project_root,
+        ),
+        auto_publish=_get_bool("RULEBOOK_AUTO_PUBLISH", default=True),
+        delete_previous=_get_bool("RULEBOOK_DELETE_PREVIOUS", default=True),
+    )
+
     return AppConfig(
         discord_bot_token=_get_required("DISCORD_BOT_TOKEN"),
         discord_application_id=int(_get_required("DISCORD_APPLICATION_ID")),
@@ -169,4 +199,5 @@ def load_config() -> AppConfig:
         rules_sync=rules_sync,
         openai=openai,
         daily=daily,
+        rulebook=rulebook,
     )
