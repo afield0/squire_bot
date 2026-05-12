@@ -43,8 +43,12 @@ class GitHubRulesSyncService:
                 await self._run_git("remote", "set-url", "origin", self.config.repo_url)
                 await self._update_sparse_settings()
                 await self._run_git("fetch", "origin", self.config.branch)
-                await self._run_git("checkout", self.config.branch)
-                await self._run_git("pull", "--ff-only", "origin", self.config.branch)
+                await self._run_git(
+                    "checkout",
+                    "-B",
+                    self.config.branch,
+                    f"origin/{self.config.branch}",
+                )
 
             await self._ensure_include_paths_exist()
             commit = await self.get_current_commit()

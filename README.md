@@ -305,7 +305,7 @@ In the private repo, that corresponds to:
 
 `tools/rulebook/Vampire_Defenders_Rulebook_compressed.metadata.json`
 
-The bot falls back to the synced repo commit when the metadata file is missing.
+The bot falls back to the synced repo commit when the metadata file is missing. The rulebook post reads the Git commit message for the published commit and includes it with the PDF.
 
 ### Rules Q&A behavior
 

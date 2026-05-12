@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import json
 import random
+import subprocess
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -96,16 +98,9 @@ class RulebookPublishService:
         build_metadata = self._load_build_metadata()
         published_commit = build_metadata.build_commit if build_metadata else commit
         short_commit = published_commit[:12]
+        commit_note = await self._get_commit_note(published_commit)
         published_at = datetime.now(UTC).isoformat()
-        body = "\n".join(
-            [
-                "**Latest Vampire Defenders Rulebook**",
-                f"Build commit: `{short_commit}`",
-                self._random_post_line(),
-                "",
-                "Attached below.",
-            ]
-        )
+        body = self._build_post_body(short_commit, commit_note)
 
         try:
             message = await channel.send(
@@ -243,6 +238,49 @@ class RulebookPublishService:
 
     def _metadata_path(self) -> Path:
         return self.config.pdf_path.with_name(f"{self.config.pdf_path.stem}.metadata.json")
+
+    async def _get_commit_note(self, commit: str) -> str | None:
+        return await asyncio.to_thread(self._read_git_commit_note, commit)
+
+    def _read_git_commit_note(self, commit: str) -> str | None:
+        try:
+            result = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(self.config.pdf_path.parent),
+                    "show",
+                    "-s",
+                    "--format=%B",
+                    commit,
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except (OSError, subprocess.CalledProcessError) as exc:
+            LOGGER.warning("Could not read rulebook commit note for %s: %s", commit, exc)
+            return None
+        return result.stdout.strip() or None
+
+    def _build_post_body(self, short_commit: str, commit_note: str | None) -> str:
+        lines = [
+            "**Latest Vampire Defenders Rulebook**",
+            f"Build commit: `{short_commit}`",
+            self._random_post_line(),
+        ]
+        if commit_note:
+            lines.extend(["", "**Commit note**", self._format_commit_note(commit_note)])
+        lines.extend(["", "Attached below."])
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_commit_note(commit_note: str) -> str:
+        normalized_lines = [line.rstrip() for line in commit_note.strip().splitlines()]
+        normalized = "\n".join(normalized_lines).strip()
+        if len(normalized) > 1200:
+            normalized = f"{normalized[:1197].rstrip()}..."
+        return "\n".join(f"> {line}" if line else ">" for line in normalized.splitlines())
 
     @staticmethod
     def _random_post_line() -> str:
