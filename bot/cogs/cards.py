@@ -17,41 +17,29 @@ class CardsCog(commands.GroupCog, group_name="card", group_description="Card loo
     async def show(self, interaction: discord.Interaction, query: str) -> None:
         await interaction.response.defer(thinking=True)
         try:
-            results = self.card_repository.search_cards(query, limit=5)
+            card = await self._resolve_single_card(interaction, query)
         except Exception as exc:
             await interaction.followup.send(f"Card lookup failed: {exc}", ephemeral=True)
             return
 
-        if not results:
-            await interaction.followup.send(f"No card matched `{query}`.", ephemeral=True)
+        if card is None:
             return
 
-        best = results[0]
-        second = results[1] if len(results) > 1 else None
-        if best.score < 0.72 or (second and best.score < 1.0 and best.score - second.score < 0.08):
-            lines = [f"Multiple cards could match `{query}`. Try a more specific name or id:"]
-            lines.extend(f"- {result.card.render_summary()}" for result in results[:5])
-            await interaction.followup.send(self._trim_for_discord("\n".join(lines)), ephemeral=True)
-            return
+        await self._send_card_detail(interaction, card)
 
-        await self._send_card_detail(interaction, best.card)
-
-    @app_commands.command(name="search", description="Search cards by name, id, or type")
+    @app_commands.command(name="search", description="Show a card image by name or id")
     async def search(self, interaction: discord.Interaction, query: str) -> None:
-        await interaction.response.defer(thinking=True, ephemeral=True)
+        await interaction.response.defer(thinking=True)
         try:
-            results = self.card_repository.search_cards(query, limit=10)
+            card = await self._resolve_single_card(interaction, query)
         except Exception as exc:
             await interaction.followup.send(f"Card search failed: {exc}", ephemeral=True)
             return
 
-        if not results:
-            await interaction.followup.send(f"No cards matched `{query}`.", ephemeral=True)
+        if card is None:
             return
 
-        lines = [f"Card matches for `{query}`:"]
-        lines.extend(f"- {result.card.render_summary()}" for result in results)
-        await interaction.followup.send(self._trim_for_discord("\n".join(lines)), ephemeral=True)
+        await self._send_card_image(interaction, card)
 
     @app_commands.command(name="random", description="Show a random card, optionally filtered by type")
     async def random(self, interaction: discord.Interaction, type: str | None = None) -> None:
@@ -68,6 +56,33 @@ class CardsCog(commands.GroupCog, group_name="card", group_description="Card loo
             return
 
         await self._send_card_detail(interaction, card)
+
+    async def _resolve_single_card(
+        self,
+        interaction: discord.Interaction,
+        query: str,
+    ) -> NormalizedCard | None:
+        results = self.card_repository.search_cards(query, limit=5)
+        if not results:
+            await interaction.followup.send(f"No card matched `{query}`.", ephemeral=True)
+            return None
+
+        best = results[0]
+        second = results[1] if len(results) > 1 else None
+        if best.score < 0.72 or (second and best.score < 1.0 and best.score - second.score < 0.08):
+            lines = [f"Multiple cards could match `{query}`. Try a more specific name or id:"]
+            lines.extend(f"- {result.card.render_summary()}" for result in results[:5])
+            await interaction.followup.send(self._trim_for_discord("\n".join(lines)), ephemeral=True)
+            return None
+
+        return best.card
+
+    async def _send_card_image(self, interaction: discord.Interaction, card: NormalizedCard) -> None:
+        image_path = self.card_repository.image_path_for(card)
+        if image_path:
+            await interaction.followup.send(file=discord.File(image_path))
+            return
+        await interaction.followup.send(f"No image is available for **{card.name}**.", ephemeral=True)
 
     async def _send_card_detail(self, interaction: discord.Interaction, card: NormalizedCard) -> None:
         image_path = self.card_repository.image_path_for(card)

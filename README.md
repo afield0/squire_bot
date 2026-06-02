@@ -125,13 +125,13 @@ Required environment variables:
 - `GITHUB_TOKEN`: fine-grained GitHub PAT with read access to the private repo
 - `GITHUB_RULES_REPO_URL=https://github.com/something`
 - `GITHUB_RULES_BRANCH=master`
-- `GITHUB_RULES_INCLUDE_PATHS=tools/rulebook,vampire_defenders/cards,vampire_defenders/common,tools/assets/cards`
+- `GITHUB_RULES_INCLUDE_PATHS=tools/rulebook,game/cards,game/common,tools/assets/cards`
 - `GITHUB_RULES_LOCAL_PATH=data/rules_repo`
 - `GITHUB_RULES_BUILD_COMMAND=python -m bot.services.build_rules_artifact`
 - `GITHUB_RULES_ARTIFACT_PATH=data/rules_repo/.bot_cache/manual.md`
 - `CARDS_ARTIFACT_PATH=data/rules_repo/.bot_cache/cards.json`
 - `RULEBOOK_CHANNEL_ID`
-- `RULEBOOK_PDF_PATH=data/rules_repo/tools/rulebook/Vampire_Defenders_Rulebook_compressed.pdf`
+- `RULEBOOK_PDF_PATH=data/rules_repo/tools/rulebook/Rulebook_compressed.pdf`
 - `RULEBOOK_AUTO_PUBLISH=true`
 - `RULEBOOK_DELETE_PREVIOUS=true`
 - `OPENAI_API_KEY`
@@ -146,7 +146,7 @@ Behavior:
 - if it exists, the bot updates it with a pull
 - the sparse checkout includes the rulebook directory, card definitions, common code, and rendered card images under `tools/assets/cards`
 - the build step concatenates those files into one local artifact at `data/rules_repo/.bot_cache/manual.md`
-- the card build imports `vampire_defenders.cards.registry.CARD_REGISTRY` from the local checkout and writes normalized card data to `data/rules_repo/.bot_cache/cards.json`
+- the card build imports the card registry from the local checkout and writes normalized card data to `data/rules_repo/.bot_cache/cards.json`
 - rulebook PDF publishing uploads the local compressed PDF from the private repo checkout to Discord as an attachment; Discord is the player-facing host, not GitHub
 - if `RULEBOOK_PDF_PATH` is under `GITHUB_RULES_LOCAL_PATH`, the bot automatically adds that PDF path and its metadata path to the sparse checkout paths
 - `/rules ask` sends the entire local artifact plus the user question to OpenAI on each call
@@ -155,7 +155,7 @@ Behavior:
 
 ### GitHub PAT
 
-Create a fine-grained personal access token on GitHub with read-only repository access to `afield0/vampire-defenders-2`, then set it in `GITHUB_TOKEN`.
+Create a fine-grained personal access token on GitHub with read-only repository access to the private rules repository, then set it in `GITHUB_TOKEN`.
 
 The bot does not log the token and sanitizes Git command output before surfacing failures.
 
@@ -185,8 +185,8 @@ Rules:
 
 Cards:
 
-- `/card show query:<text>`
-- `/card search query:<text>`
+- `/card search query:<text>` returns the matching card image
+- `/card show query:<text>` returns the matching card image plus card details
 - `/card random type:<optional>`
 
 Rulebook:
@@ -239,7 +239,7 @@ The bot stores `welcome_greeted:<guild_id>:<member_id>` in SQLite after a succes
 
 ### Rules sync
 
-1. Create a fine-grained GitHub PAT with repository read access to `afield0/vampire-defenders-2`.
+1. Create a fine-grained GitHub PAT with repository read access to the private rules repository.
 2. Set `GITHUB_TOKEN`, `OPENAI_API_KEY`, and the rules environment variables from `.env.example`.
 3. Start the bot.
 4. Run `/rules sync`.
@@ -262,12 +262,12 @@ The bot writes lightweight rules metadata locally in SQLite:
 
 ### Rulebook PDF publishing
 
-The bot can publish the private game's latest compressed rulebook PDF into a Discord channel without making `afield0/vampire-defenders-2` public.
+The bot can publish the private game's latest compressed rulebook PDF into a Discord channel without making the private rules repository public.
 
 Set:
 
 - `RULEBOOK_CHANNEL_ID` to the Discord channel that should host the PDF attachment
-- `RULEBOOK_PDF_PATH=data/rules_repo/tools/rulebook/Vampire_Defenders_Rulebook_compressed.pdf`
+- `RULEBOOK_PDF_PATH=data/rules_repo/tools/rulebook/Rulebook_compressed.pdf`
 - `RULEBOOK_AUTO_PUBLISH=true` to publish after a successful sync/build when the synced commit changes
 - `RULEBOOK_DELETE_PREVIOUS=true` to delete the previously published rulebook message after the new upload succeeds
 
@@ -286,7 +286,7 @@ State is stored in SQLite with these keys:
 
 Auto-publish uses the existing private repo sync flow. After `/rules sync`, and during the lightweight periodic sync check when enabled, the bot compares the current synced commit to the last published commit and only uploads a new PDF when the commit changed.
 
-The compressed PDF should already exist in the private repo at `tools/rulebook/Vampire_Defenders_Rulebook_compressed.pdf`. The bot fetches that file through the private sparse checkout and then republishes it as a Discord attachment.
+The compressed PDF should already exist in the private repo at `tools/rulebook/Rulebook_compressed.pdf`. The bot fetches that file through the private sparse checkout and then republishes it as a Discord attachment.
 
 If the rulebook PDF is built and then committed, write build metadata next to the PDF before the commit so the bot can publish the commit that actually produced the PDF, not the later commit that contains it:
 
@@ -299,11 +299,11 @@ If the rulebook PDF is built and then committed, write build metadata next to th
 
 For the default PDF path, the metadata file should be:
 
-`data/rules_repo/tools/rulebook/Vampire_Defenders_Rulebook_compressed.metadata.json`
+`data/rules_repo/tools/rulebook/Rulebook_compressed.metadata.json`
 
 In the private repo, that corresponds to:
 
-`tools/rulebook/Vampire_Defenders_Rulebook_compressed.metadata.json`
+`tools/rulebook/Rulebook_compressed.metadata.json`
 
 The bot falls back to the synced repo commit when the metadata file is missing. The rulebook post reads the Git commit message for the published commit and includes it with the PDF.
 
