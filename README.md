@@ -288,7 +288,7 @@ Auto-publish uses the existing private repo sync flow. After `/rules sync`, and 
 
 The compressed PDF should already exist in the private repo at `tools/rulebook/Rulebook_compressed.pdf`. The bot fetches that file through the private sparse checkout and then republishes it as a Discord attachment.
 
-If the rulebook PDF is built and then committed, write build metadata next to the PDF before the commit so the bot can publish the commit that actually produced the PDF, not the later commit that contains it:
+If the rulebook PDF is built and then committed, build metadata may be written next to the PDF so the bot can report when and from what source the PDF was produced:
 
 ```json
 {
@@ -305,7 +305,7 @@ In the private repo, that corresponds to:
 
 `tools/rulebook/Rulebook_compressed.metadata.json`
 
-The bot falls back to the synced repo commit when the metadata file is missing. The rulebook post reads the Git commit message for the published commit and includes it with the PDF.
+The bot publishes and deduplicates using the synced checkout commit. The rulebook post reads the Git commit message for that checkout commit and includes it with the PDF.
 
 ### Rules Q&A behavior
 

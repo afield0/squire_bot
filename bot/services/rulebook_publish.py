@@ -96,7 +96,7 @@ class RulebookPublishService:
 
         previous_state = await self.get_state()
         build_metadata = self._load_build_metadata()
-        published_commit = build_metadata.build_commit if build_metadata else commit
+        published_commit = commit
         short_commit = published_commit[:12]
         commit_note = await self._get_commit_note(published_commit)
         published_at = datetime.now(UTC).isoformat()
@@ -142,9 +142,7 @@ class RulebookPublishService:
         if not self.config.channel_id:
             return None
         state = await self.get_state()
-        build_metadata = self._load_build_metadata()
-        published_commit = build_metadata.build_commit if build_metadata else commit
-        if state.commit == published_commit:
+        if state.commit == commit:
             return None
         return await self.publish(commit)
 
