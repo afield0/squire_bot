@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import subprocess
 import sys
 import tempfile
 import types
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 discord_module = types.ModuleType("discord")
 discord_module.File = object
@@ -84,6 +86,18 @@ class RulebookPublishTests(unittest.TestCase):
 
         self.assertIsNone(result)
         self.assertIsNone(service.published_commit)
+
+    def test_commit_note_lookup_disables_interactive_git_prompts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            service = _service(Path(tmp_dir), state_commit=None)
+            with patch("bot.services.rulebook_publish.subprocess.run") as run:
+                run.return_value = types.SimpleNamespace(stdout="Useful commit note\n")
+
+                result = service._read_git_commit_note("checkout-head-commit")
+
+        self.assertEqual(result, "Useful commit note")
+        self.assertEqual(run.call_args.kwargs["env"]["GIT_TERMINAL_PROMPT"], "0")
+        self.assertIs(run.call_args.kwargs["stdin"], subprocess.DEVNULL)
 
 
 if __name__ == "__main__":

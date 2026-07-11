@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import json
+import os
 import random
 import subprocess
 from dataclasses import dataclass
@@ -242,6 +243,11 @@ class RulebookPublishService:
 
     def _read_git_commit_note(self, commit: str) -> str | None:
         try:
+            env = os.environ.copy()
+            # A partial clone may need to contact its promisor remote even for
+            # `git show`. Commit notes are optional, so never let that lookup
+            # block the bot waiting for interactive GitHub credentials.
+            env["GIT_TERMINAL_PROMPT"] = "0"
             result = subprocess.run(
                 [
                     "git",
@@ -255,6 +261,8 @@ class RulebookPublishService:
                 check=True,
                 capture_output=True,
                 text=True,
+                stdin=subprocess.DEVNULL,
+                env=env,
             )
         except (OSError, subprocess.CalledProcessError) as exc:
             LOGGER.warning("Could not read rulebook commit note for %s: %s", commit, exc)

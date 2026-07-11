@@ -122,7 +122,7 @@ class CardsArtifactBuilder:
         asset_dir = CARD_ASSET_DIRS.get(card_type)
         if not asset_dir:
             return None
-        asset_root = self.config.local_checkout_path / "tools" / "assets" / "cards" / asset_dir
+        asset_root = self.config.local_checkout_path / "assets" / "cards" / "rendered" / asset_dir
         for suffix in (".png", ".webp", ".jpg", ".jpeg"):
             path = asset_root / f"{card_id}{suffix}"
             if path.exists():

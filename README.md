@@ -125,13 +125,13 @@ Required environment variables:
 - `GITHUB_TOKEN`: fine-grained GitHub PAT with read access to the private repo
 - `GITHUB_RULES_REPO_URL=https://github.com/something`
 - `GITHUB_RULES_BRANCH=master`
-- `GITHUB_RULES_INCLUDE_PATHS=tools/rulebook,game/cards,game/common,tools/assets/cards`
+- `GITHUB_RULES_INCLUDE_PATHS=tools/rulebook/src,game/cards,game/common,assets/cards/rendered`
 - `GITHUB_RULES_LOCAL_PATH=data/rules_repo`
 - `GITHUB_RULES_BUILD_COMMAND=python -m bot.services.build_rules_artifact`
 - `GITHUB_RULES_ARTIFACT_PATH=data/rules_repo/.bot_cache/manual.md`
 - `CARDS_ARTIFACT_PATH=data/rules_repo/.bot_cache/cards.json`
 - `RULEBOOK_CHANNEL_ID`
-- `RULEBOOK_PDF_PATH=data/rules_repo/tools/rulebook/Rulebook_compressed.pdf`
+- `RULEBOOK_PDF_PATH=data/rules_repo/releases/rulebook/Rulebook_compressed.pdf`
 - `RULEBOOK_AUTO_PUBLISH=true`
 - `RULEBOOK_DELETE_PREVIOUS=true`
 - `OPENAI_API_KEY`
@@ -144,7 +144,7 @@ Behavior:
 
 - if the repo does not exist locally, the bot performs a sparse clone
 - if it exists, the bot updates it with a pull
-- the sparse checkout includes the rulebook directory, card definitions, common code, and rendered card images under `tools/assets/cards`
+- the sparse checkout includes the rulebook source, card definitions, common code, and rendered card images under `assets/cards/rendered`
 - the build step concatenates those files into one local artifact at `data/rules_repo/.bot_cache/manual.md`
 - the card build imports the card registry from the local checkout and writes normalized card data to `data/rules_repo/.bot_cache/cards.json`
 - rulebook PDF publishing uploads the local compressed PDF from the private repo checkout to Discord as an attachment; Discord is the player-facing host, not GitHub
@@ -267,7 +267,7 @@ The bot can publish the private game's latest compressed rulebook PDF into a Dis
 Set:
 
 - `RULEBOOK_CHANNEL_ID` to the Discord channel that should host the PDF attachment
-- `RULEBOOK_PDF_PATH=data/rules_repo/tools/rulebook/Rulebook_compressed.pdf`
+- `RULEBOOK_PDF_PATH=data/rules_repo/releases/rulebook/Rulebook_compressed.pdf`
 - `RULEBOOK_AUTO_PUBLISH=true` to publish after a successful sync/build when the synced commit changes
 - `RULEBOOK_DELETE_PREVIOUS=true` to delete the previously published rulebook message after the new upload succeeds
 
@@ -286,7 +286,7 @@ State is stored in SQLite with these keys:
 
 Auto-publish uses the existing private repo sync flow. After `/rules sync`, and during the lightweight periodic sync check when enabled, the bot compares the current synced commit to the last published commit and only uploads a new PDF when the commit changed.
 
-The compressed PDF should already exist in the private repo at `tools/rulebook/Rulebook_compressed.pdf`. The bot fetches that file through the private sparse checkout and then republishes it as a Discord attachment.
+The compressed PDF should already exist in the private repo at `releases/rulebook/Rulebook_compressed.pdf`. The bot fetches that file through the private sparse checkout and then republishes it as a Discord attachment.
 
 If the rulebook PDF is built and then committed, build metadata may be written next to the PDF so the bot can report when and from what source the PDF was produced:
 
@@ -299,11 +299,11 @@ If the rulebook PDF is built and then committed, build metadata may be written n
 
 For the default PDF path, the metadata file should be:
 
-`data/rules_repo/tools/rulebook/Rulebook_compressed.metadata.json`
+`data/rules_repo/releases/rulebook/Rulebook_compressed.metadata.json`
 
 In the private repo, that corresponds to:
 
-`tools/rulebook/Rulebook_compressed.metadata.json`
+`releases/rulebook/Rulebook_compressed.metadata.json`
 
 The bot publishes and deduplicates using the synced checkout commit. The rulebook post reads the Git commit message for that checkout commit and includes it with the PDF.
 
