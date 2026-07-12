@@ -123,7 +123,7 @@ def _load_rules_sync_config() -> RulesSyncConfig:
             path.strip()
             for path in os.getenv(
                 "GITHUB_RULES_INCLUDE_PATHS",
-                "tools/rulebook,vampire_defenders/cards,vampire_defenders/common,tools/assets/cards",
+                "tools/rulebook/src,vampire_defenders/cards,vampire_defenders/common,assets/cards/rendered",
             ).split(",")
             if path.strip()
         ],
@@ -232,7 +232,7 @@ def load_config() -> AppConfig:
         pdf_path=_resolve_path(
             os.getenv(
                 "RULEBOOK_PDF_PATH",
-                "data/rules_repo/tools/rulebook/Vampire_Defenders_Rulebook_compressed.pdf",
+                "data/rules_repo/releases/rulebook/Vampire_Defenders_Rulebook_compressed.pdf",
             ),
             base_path=project_root,
         ),
