@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import json
+import os
 import random
 import subprocess
 from dataclasses import dataclass
@@ -96,7 +97,7 @@ class RulebookPublishService:
 
         previous_state = await self.get_state()
         build_metadata = self._load_build_metadata()
-        published_commit = build_metadata.build_commit if build_metadata else commit
+        published_commit = commit
         short_commit = published_commit[:12]
         commit_note = await self._get_commit_note(published_commit)
         published_at = datetime.now(UTC).isoformat()
@@ -142,9 +143,7 @@ class RulebookPublishService:
         if not self.config.channel_id:
             return None
         state = await self.get_state()
-        build_metadata = self._load_build_metadata()
-        published_commit = build_metadata.build_commit if build_metadata else commit
-        if state.commit == published_commit:
+        if state.commit == commit:
             return None
         return await self.publish(commit)
 
@@ -244,6 +243,11 @@ class RulebookPublishService:
 
     def _read_git_commit_note(self, commit: str) -> str | None:
         try:
+            env = os.environ.copy()
+            # A partial clone may need to contact its promisor remote even for
+            # `git show`. Commit notes are optional, so never let that lookup
+            # block the bot waiting for interactive GitHub credentials.
+            env["GIT_TERMINAL_PROMPT"] = "0"
             result = subprocess.run(
                 [
                     "git",
@@ -257,6 +261,8 @@ class RulebookPublishService:
                 check=True,
                 capture_output=True,
                 text=True,
+                stdin=subprocess.DEVNULL,
+                env=env,
             )
         except (OSError, subprocess.CalledProcessError) as exc:
             LOGGER.warning("Could not read rulebook commit note for %s: %s", commit, exc)
